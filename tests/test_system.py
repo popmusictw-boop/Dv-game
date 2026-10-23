@@ -235,6 +235,14 @@ class T8Retention(Base):
         self.assertGreaterEqual(r['deleted'], 1)
         files = c.get(f'/api/drafts/{did}').json['files']
         self.assertEqual(len(files), 1); self.assertEqual(files[0]['studentKey'], 's2')
+        # 前一天建立的教案（含學生資料）整份刪除
+        old = self.new_plan(c)
+        self.upload(c, old, 's1', '虛構學生甲_觀察紀錄.txt')
+        with self.app.app_context():
+            db = dbm.get_db(); db.execute('UPDATE drafts SET created_at=? WHERE id=?', (time.time() - 86400 * 2, old)); db.commit()
+        anon.get('/api/cron/purge', headers={'Authorization': 'Bearer test-cron'})
+        self.assertEqual(c.get(f'/api/drafts/{old}').status_code, 404)
+        self.assertEqual(c.get(f'/api/drafts/{did}').status_code, 200)
 
 class T7Security(Base):
     def test_password_and_admin(self):

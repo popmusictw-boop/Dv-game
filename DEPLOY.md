@@ -50,5 +50,6 @@ python tests/ui_flow.py https://你的網址 帳號 密碼 /tmp/out mobile
 - 程式碼來源：GitHub `popmusictw-boop/Dv-game` 的獨立分支 `bt-lesson-plan`（不含學生資料與金鑰）。
 - 環境變數（Vercel，已設為 sensitive）：`BT_SECRET_KEY`、`BT_DATA_KEY`、`BT_DATABASE_URL`；另有 `BT_ENV=production`、`BT_SESSION_SECURE=1`、`BT_MAX_UPLOAD_MB=4`、`BT_INSTANCE_DIR=/tmp/bt`。
 - 雲端限制：單檔上傳上限 4 MB（Vercel 請求大小限制）；無 OCR（掃描檔請改用文字型 PDF／Word 或貼上文字）；PDF 改由預覽頁「列印／另存 PDF」產生。
-- 待加強：將 Supabase 根憑證（Dashboard → Database → SSL Configuration 下載）存為 `btsys/certs/supabase-ca.pem` 後重新部署，資料庫連線即會完整驗證伺服器憑證（目前為加密但未驗證憑證）。
+- 資料庫連線以 Supabase Root 2021 CA（`btsys/certs/supabase-ca.pem`，SHA-256 指紋與 Dashboard 憑證一致）完整驗證伺服器憑證。
 - 更新部署：推送到 `bt-lesson-plan` 分支後，在 Vercel 對該分支建立 Production 部署。
+- 資料保存：系統不長期保存資料。前一天（臺灣時間）建立的教案（含學生姓名、能力分析、生成內容）與所有上傳檔案於隔日自動刪除（Vercel 排程每日 00:05 臺灣時間執行 `/api/cron/purge`，並在系統有人使用時每 10 分鐘檢查一次）。排程以環境變數 `CRON_SECRET` 驗證。

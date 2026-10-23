@@ -83,7 +83,9 @@ async function showHome() {
   showView('homeView'); $('#saveState').textContent = '';
   const r = await api('GET', '/api/drafts');
   const list = $('#draftList');
-  list.replaceChildren(r.drafts.length ? '' : h('p', { class: 'muted' }, '尚無教案。按「新增教案」開始。'),
+  list.replaceChildren(
+    h('div', { class: 'notice warn' }, h('strong', {}, '當日使用、隔日清除：'), '今天建立的教案與上傳的學生資料，會在今晚 24:00 後自動刪除。完成後請在「匯出」步驟下載 Word（可在自己的電腦修改）或 PDF；明天需重新建立並上傳學生資料。'),
+    r.drafts.length ? '' : h('p', { class: 'muted' }, '尚無教案。按「新增教案」開始。'),
     ...r.drafts.map(d => h('div', { class: 'draft' },
       h('div', {}, h('strong', {}, d.title), h('div', { class: 'muted' }, '最後修改：' + new Date(d.updated_at * 1000).toLocaleString('zh-TW'))),
       h('div', { class: 'row' },
@@ -332,7 +334,7 @@ function privacyNotice() {
       h('li', {}, '處理位置：檔案上傳至學校自建之本系統伺服器，在伺服器上擷取文字與分析；檔案、擷取文字與教案內容皆以加密方式保存，僅上傳教師本人可存取。'),
       h('li', {}, p.aiEnabled ? `外部 AI：管理者已啟用（${p.aiModel}）。只有在您於分析時勾選同意後，才會將該生擷取文字（姓名以代號取代）送至 Anthropic API；預設不送出。` : '外部 AI：未啟用。所有分析皆在本系統伺服器以規則式比對完成，不送出任何資料。'),
       h('li', {}, 'OCR（掃描檔、照片）：' + p.ocr.message),
-      h('li', {}, h('strong', {}, '上傳的學生檔案（含擷取文字）於上傳隔日（臺灣時間）自動刪除，請在上傳當天完成擷取分析與確認。'), `教案內容（含您確認的能力敘述）保留至最後修改起 ${p.retentionDays} 天；您可隨時刪除單一檔案、分析資料或整份教案。`),
+      h('li', {}, h('strong', {}, '系統不保存資料：教案、學生資料與上傳檔案皆於隔日（臺灣時間 00:05）自動刪除。請當天完成並下載 Word 檔，在自己的電腦上調整；下次使用需重新上傳學生資料。'), '您也可隨時自行刪除單一檔案、分析資料或整份教案。'),
       h('li', {}, '系統紀錄只記錄操作類型與編號，不記錄學生姓名或內容。建議以代號取代學生全名。')),
     h('div', { class: 'hint' }, '支援格式：' + [...new Set(Object.values(p.supported))].join('、') + `；單檔上限 ${p.maxUploadMb} MB。不支援：.doc、HEIC 等（會提示轉檔方式）。`));
 }
@@ -757,7 +759,8 @@ async function stepExport() {
     r.issues.length ? h('div', { class: 'notice warn' }, h('strong', {}, '匯出前提醒：'), h('ul', {}, ...r.issues.map(i => h('li', {}, i))), h('label', { class: 'inline' }, ack, '我已了解，仍要匯出')) : h('div', { class: 'notice' }, '檢核通過：學生先備能力已確認、教學時間合計符合課時。'),
     h('div', { class: 'row' }, h('button', { class: 'btn primary', onclick: dl('docx') }, '下載 Word（可編輯）'), h('button', { class: 'btn', onclick: dl('pdf') }, '下載 PDF'),
       h('button', { class: 'btn', onclick: () => go(6) }, '回預覽列印')),
-    h('p', { class: 'hint' }, 'Word 依北特「教學設計表」三個表格的結構產生（抬頭、基本資料與課程架構、教學流程）；PDF 由伺服器以 LibreOffice 將同一份 Word 轉檔。匯出檔含學生資料，請妥善保管。'));
+    h('div', { class: 'notice warn' }, '本教案與學生資料將於今晚 24:00 後自動刪除，請務必現在下載。下載的 Word 檔可在自己的電腦上繼續修改。'),
+    h('p', { class: 'hint' }, 'Word 依北特「教學設計表」原始版型產生。匯出檔含學生資料，請存放於個人電腦並妥善保管。'));
 }
 
 boot();

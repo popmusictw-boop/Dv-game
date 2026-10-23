@@ -42,16 +42,21 @@ def create_app(test_config=None):
     _last_purge = {'at': 0.0}
 
     def purge_uploaded_files():
-        """刪除「今天（臺灣時間）以前」上傳的學生檔案本體與擷取文字，即上傳隔日起清除。
-        教案內容（教師確認後的能力敘述等）保留；如需一併刪除，教師可刪除分析資料或整份教案。"""
+        """隔日清除：刪除「今天（臺灣時間）以前」建立的教案（含學生資料、分析與生成內容）及所有上傳檔案。
+        系統不長期保存教案；教師需於當天下載 Word 檔，在自己的電腦上調整。"""
         today0 = datetime.datetime.now(TZ).replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
         db = dbm.get_db()
-        rows = db.execute('SELECT id FROM files WHERE created_at < ?', (today0,)).fetchall()
-        if rows:
-            db.execute('DELETE FROM files WHERE created_at < ?', (today0,)); db.commit()
-            dbm.audit(None, 'auto_purge_files', len(rows))
+        files = db.execute('SELECT id FROM files WHERE created_at < ? OR draft_id IN (SELECT id FROM drafts WHERE created_at < ?)', (today0, today0)).fetchall()
+        drafts = db.execute('SELECT id FROM drafts WHERE created_at < ?', (today0,)).fetchall()
+        if files:
+            db.execute('DELETE FROM files WHERE created_at < ? OR draft_id IN (SELECT id FROM drafts WHERE created_at < ?)', (today0, today0))
+        if drafts:
+            db.execute('DELETE FROM drafts WHERE created_at < ?', (today0,))
+        db.commit()
+        if files or drafts:
+            dbm.audit(None, 'auto_purge', f'drafts={len(drafts)} files={len(files)}')
         _last_purge['at'] = time.time()
-        return len(rows)
+        return len(files) + len(drafts)
 
     @app.before_request
     def lazy_purge():
@@ -176,7 +181,7 @@ def create_app(test_config=None):
         ocr = extract.ocr_status(app.config['OCR_LANG'])
         return jsonify(
             aiEnabled=app.config['AI_ENABLED'], aiModel=app.config['AI_MODEL'] if app.config['AI_ENABLED'] else None,
-            ocr=ocr, retentionDays=app.config['RETENTION_DAYS'], filePolicy='next-day', maxUploadMb=app.config['MAX_UPLOAD_MB'],
+            ocr=ocr, retentionDays=app.config['RETENTION_DAYS'], filePolicy='next-day', draftPolicy='next-day', maxUploadMb=app.config['MAX_UPLOAD_MB'],
             supported=extract.SUPPORTED, unsupported=extract.UNSUPPORTED_HINT)
 
     # ---------- 選單與課綱 ----------
