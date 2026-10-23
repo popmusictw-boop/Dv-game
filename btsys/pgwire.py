@@ -40,6 +40,11 @@ class Connection:
             raw.sendall(struct.pack('!ii', 8, 80877103))
             if raw.recv(1) != b'S': raise PgError('伺服器不支援 TLS')
             ctx = ssl.create_default_context()
+            ca = os.path.join(os.path.dirname(__file__), 'certs', 'supabase-ca.pem')
+            if (u.hostname or '').endswith('.supabase.com') or (u.hostname or '').endswith('.supabase.co'):
+                # Supabase 使用自有根憑證；放入 btsys/certs/supabase-ca.pem 即可完整驗證，未放置時仍加密傳輸但不驗證伺服器憑證
+                if os.path.exists(ca): ctx = ssl.create_default_context(cafile=ca)
+                else: ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE
             if 'sslverify=0' in (u.query or ''):
                 ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE
             raw = ctx.wrap_socket(raw, server_hostname=u.hostname)

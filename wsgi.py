@@ -1,4 +1,4 @@
-import logging
-from app import create_app
+import logging, os
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(message)s')
-app = create_app()
+import app as _appmod
+app = getattr(_appmod, 'app', None) or _appmod.create_app()
