@@ -19,12 +19,12 @@ class Base(unittest.TestCase):
             d = dbm.get_db()
             if os.environ.get('BT_TEST_DATABASE_URL'):
                 for t in ('audit', 'files', 'drafts', 'curriculum_imports', 'users'): d.execute(f'DELETE FROM {t}')
-            for u in ('t1', 't2'):
+            for u in ('u1', 'u2'):
                 d.execute('INSERT INTO users(username,display_name,password_hash,is_admin,created_at) VALUES(?,?,?,0,?)',
                           (u, u, generate_password_hash('password12345'), time.time()))
             d.commit()
 
-    def client(self, user='t1'):
+    def client(self, user='u1'):
         c = self.app.test_client()
         r = c.post('/api/login', json={'username': user, 'password': 'password12345'}, headers=H)
         self.assertEqual(r.status_code, 200)
@@ -256,7 +256,7 @@ class T7Security(Base):
         self.assertEqual(anon.get('/api/drafts').status_code, 401)
         c = self.client(); did = self.new_plan(c)
         self.upload(c, did, 's1', '虛構學生甲_觀察紀錄.txt')
-        other = self.client('t2')
+        other = self.client('u2')
         self.assertEqual(other.get(f'/api/drafts/{did}').status_code, 404)
         self.assertEqual(other.get(f'/api/drafts/{did}/export.docx').status_code, 404)
         self.assertEqual(c.post('/api/drafts', json={}).status_code, 403)  # 缺少 CSRF 標頭

@@ -1,3 +1,4 @@
+import re
 """北特教案生成系統 — Flask 應用程式。
 
 啟動（開發）：python app.py         正式部署請見 DEPLOY.md（gunicorn／Docker、HTTPS、環境變數金鑰）。
@@ -147,6 +148,7 @@ def create_app(test_config=None):
         d = request.get_json(force=True)
         uname = (d.get('username') or '').strip().lower()
         if uname.endswith('@tpmr.tp.edu.tw'): uname = uname.split('@')[0]  # 校內信箱可直接當帳號登入
+        if re.fullmatch(r't\d+', uname): uname = uname[1:]  # 帳號為教師代碼（數字），t1234 亦可登入
         u = dbm.get_db().execute('SELECT * FROM users WHERE username=? AND active=1', (uname,)).fetchone()
         if not u or not check_password_hash(u['password_hash'], d.get('password', '')):
             time.sleep(0.5)
