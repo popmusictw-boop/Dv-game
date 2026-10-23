@@ -183,7 +183,7 @@ class T4Goals(Base):
         for k, lst in goals.items():
             self.assertEqual({x['domain'] for x in lst}, {'認知', '情意', '技能'})
             for x in lst:
-                self.assertTrue(x['assessment'] and x['criterion'] and x['situation'] and x['support'] and x['behavior'])
+                self.assertTrue(x['assessment'] and x['criterion'] and x['behavior'] and x['text'].startswith(x['situation'] or x['support'] or '能'))
                 self.assertTrue(x['criterionSuggested'])
                 self.assertTrue(x['performanceCodes'] and x['contentCodes'])
         # 乙無口語 → 回應方式含指認／溝通輔具
@@ -192,7 +192,7 @@ class T4Goals(Base):
         plan['goals'] = goals; c.put(f'/api/drafts/{did}', json=plan, headers=H)
         acts = c.post(f'/api/drafts/{did}/activities/suggest', headers=H).json
         self.assertEqual(acts['total'], 50)
-        self.assertEqual([a['phase'] for a in acts['activities']], ['一、複習及引起動機', '二、發展活動', '三、綜合活動'])
+        self.assertEqual([a['phase'] for a in acts['activities'] if a['phase']], ['一、複習及引起動機', '二、發展活動', '三、綜合活動'])
 
 class T5NoFabrication(Base):
     def test_missing_not_filled(self):

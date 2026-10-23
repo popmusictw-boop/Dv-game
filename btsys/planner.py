@@ -53,71 +53,92 @@ def _support_for(group_students, analyses, rank):
 def _clean(t):
     return re.sub(r'[。．]$', '', t.strip())
 
+def _sup_phrase(sup):
+    """協助程度轉為目標前置語；獨立者不加。"""
+    if not sup or sup.startswith('獨立'): return ''
+    return sup if sup.startswith('在') else f'在{sup}下'
+
 def suggest_goals(ctx, groups, analyses, perf_sel, content_sel, curriculum_pending=False):
+    """依本校教案寫法：條件＋可觀察行為的短句；達成標準另存於欄位（建議值），不寫入目標句。"""
     if not curriculum_pending and (not perf_sel or not content_sel):
         return dict(error='請先在「確認課綱」步驟勾選至少一項學習表現與一項學習內容，系統才會依所選項目產生目標。')
     unit = ctx.get('unit') or '本單元'
-    # 課綱未載入（待確認）時，以單元名稱產生目標，課綱代碼留空，不自行拼湊代碼
     contents = [(_clean(c.get('teacherText') or c['officialText']), c['code']) for c in content_sel][:2] or [(unit, '')]
     pcodes = [p['code'] for p in perf_sel][:3]
+    c_codes = [c for _, c in contents if c]
     out = {}
     for rank, g in enumerate([g for g in groups if g['studentKeys']]):
         modes = _response_modes(g['studentKeys'], analyses)
-        modes_t = '或'.join(modes)
+        verbal = modes == ['口語']
         sup, from_data = _support_for(g['studentKeys'], analyses, rank)
-        crit = RANK_CRITERION[min(rank, 3)]
-        c_text, c_code = contents[0]
-        c2_text, c2_code = contents[-1]
-        verb = ('說出' if rank == 0 else '說出或指認') if modes == ['口語'] else '指認或選出'
-        goals = [
-            dict(domain='認知', situation=f'在教師以圖片、實物或情境提問呈現「{unit}」相關內容時',
-                 behavior=f'能以{modes_t}{verb}「{c_text}」的正確做法或內容', support=sup,
-                 assessment='口頭評量' if modes == ['口語'] else '指認／配對評量', contentCodes=[x for x in [c_code] if x]),
-            dict(domain='情意', situation=f'在「{unit}」的小組活動中',
-                 behavior='能參與活動並' + ('以口語表達自己的感受或想法，且能等待輪流、接受同學提醒' if modes == ['口語'] else f'以{modes_t}表達喜歡或不喜歡，並能在活動中等待輪流'),
-                 support=sup, assessment='觀察評量', contentCodes=[x for x in [c2_code] if x]),
-            dict(domain='技能', situation=f'在實際操作或模擬「{unit}」的情境中',
-                 behavior=f'能表現出符合「{c2_text}」的實際行為或操作', support=sup,
-                 assessment='實作評量' + ('（協助下）' if rank >= 2 else ''), contentCodes=[x for x in [c2_code] if x]),
-        ]
-        for go in goals:
-            go.update(id=uuid.uuid4().hex[:8], responseModes=modes, criterion=crit, criterionSuggested=True,
-                      supportFromData=from_data, performanceCodes=pcodes, groupKey=g['key'])
-            go['text'] = f'{go["situation"]}，{go["support"]}，{go["behavior"]}，達成標準：{go["criterion"]}（建議值，請教師確認）。'
+        pre = _sup_phrase(sup)
+        pre_c = (pre + '，') if pre else ''
+        if rank == 0 and verbal:
+            cog = dict(situation=f'提供「{unit}」相關圖片或提問時', support='', behavior=f'能說出「{unit}」的步驟或重點', assessment='口說')
+        elif verbal:
+            cog = dict(situation=f'提供「{unit}」相關圖片或提問時', support=pre, behavior=f'能說出或指認「{unit}」的步驟或重點', assessment='口說／指認圖片')
+        else:
+            cog = dict(situation=f'提供「{unit}」步驟圖卡時', support=pre, behavior=f'能指認「{unit}」的步驟或重點', assessment='指認圖片')
+        aff = dict(situation='', support='', behavior=f'能以積極、負責任的態度參與「{unit}」課程活動', assessment='觀察')
+        if rank == 0 and not pre:
+            skl = dict(situation='', support='', behavior=f'能依指令完成「{unit}」的實作', assessment='獨立操作')
+        else:
+            skl = dict(situation='', support=pre, behavior=f'能完成「{unit}」的實作', assessment='肢體協助／工具輔助操作' if '肢體' in pre else '提示下操作')
+        goals = []
+        for dom, gdef in (('認知', cog), ('情意', aff), ('技能', skl)):
+            go = dict(domain=dom, **gdef)
+            go.update(id=uuid.uuid4().hex[:8], responseModes=modes, criterion=RANK_CRITERION[min(rank, 3)], criterionSuggested=True,
+                      supportFromData=from_data, performanceCodes=pcodes, contentCodes=c_codes, groupKey=g['key'])
+            go['text'] = '，'.join(x for x in (go['situation'], go['support'], go['behavior']) if x) + '。'
+            goals.append(go)
         out[g['key']] = goals
-    return dict(goals=out, note='目標由所選學習表現／學習內容與各組佐證產生；達成標準為建議值，回應方式依學生資料（口語、指認、手勢、溝通輔具），請逐條修改確認。')
+    return dict(goals=out, note='目標依本校教案寫法產生（條件＋可觀察行為）；達成標準為建議值，存於各目標欄位，可再修改。')
 
 def _round5(x):
     return max(5, int(round(x / 5.0)) * 5)
 
+def _assess_code(goals, domain, fallback):
+    for x in goals or []:
+        if x['domain'] == domain: return x.get('assessment') or fallback
+    return fallback
+
 def suggest_activities(ctx, groups, goals, content_sel):
+    """依本校教案寫法：一、複習及引起動機／二、發展活動（說明與示範、分組練習）／三、綜合活動，各組分列 A組、B組…。"""
     minutes = int(ctx.get('minutes') or 45)
-    intro = _round5(minutes * 0.2) if minutes >= 25 else max(1, minutes // 5)
+    intro = _round5(minutes * 0.15) if minutes >= 25 else max(1, minutes // 5)
     wrap = _round5(minutes * 0.2) if minutes >= 25 else max(1, minutes // 5)
     dev = minutes - intro - wrap
+    demo = max(1, _round5(dev * 0.4)) if dev >= 15 else max(1, dev // 2)
+    prac = dev - demo
     unit = ctx.get('unit') or '本單元'
-    contents = [_clean(c.get('teacherText') or c['officialText']) for c in content_sel] or [unit]
-    active = [g for g in groups if g['studentKeys']]
-    def per_group(fn):
-        return {g['key']: fn(g, i) for i, g in enumerate(active)}
-    def gsup(g, i):
-        gg = goals.get(g['key']) or []
-        return (gg[0]['support'] if gg else RANK_SUPPORT[min(i, 3)]) + ('；回應方式：' + '、'.join(gg[0]['responseModes']) if gg else '')
-    def gassess(g, i):
-        gg = goals.get(g['key']) or []
-        return '、'.join(dict.fromkeys(x['assessment'] for x in gg)) or '觀察評量'
+    contents = [_clean(c.get('teacherText') or c['officialText']) for c in content_sel][:2]
+    active = [g for g in groups if g['studentKeys']] or [dict(key='A', name='A組', studentKeys=[])]
+    def gl(g):
+        return goals.get(g['key']) or []
+    def line(i, g, fn):
+        return f'{i}{g["key"]}組：{fn(g)}'
+    def beh(g, dom):
+        x = next((x for x in gl(g) if x['domain'] == dom), None)
+        return (('，'.join(y for y in (x['support'], x['behavior']) if y)) if x else '').replace('「' + unit + '」', unit)
+    sub = lambda fn, ind='       ', mark=('(A)', '(B)', '(C)', '(D)'): '\n'.join(f'{ind}{mark[i]} {g["key"]}組：{fn(g)}' for i, g in enumerate(active))
+    num = lambda fn, ind='    ', mark=('(1)', '(2)', '(3)', '(4)'): '\n'.join(f'{ind}{mark[i]}{g["key"]}組：{fn(g)}' for i, g in enumerate(active))
+    ass = lambda dom, fb: {g['key']: _assess_code(gl(g), dom, fb if i == 0 else '指認圖片' if dom == '認知' else '協助操作') for i, g in enumerate(active)}
+    focus = '、'.join(f'「{c}」' for c in contents) if contents else f'「{unit}」'
     acts = [
         dict(phase='一、複習及引起動機', minutes=intro,
-             content=f'（一）複習與「{unit}」相關的先備經驗，以提問、圖片或實物引起學習動機。\n（二）說明本節課的學習重點與活動規則。',
-             resources='圖片或實物、簡報', groupSupport=per_group(gsup), assessment=per_group(lambda g, i: '口頭問答／觀察')),
-        dict(phase='二、發展活動', minutes=dev,
-             content='（一）教師說明並示範：' + '；'.join(f'「{c}」' for c in contents[:2]) + '。\n（二）分組練習：各組依目標進行練習，教師依各組支持需求提供提示、示範或協助。\n（三）學生輪流實作並互相觀摩，教師即時回饋。',
-             resources='教學簡報、實作材料、提示圖卡、增強物', groupSupport=per_group(gsup), assessment=per_group(gassess)),
+             content=f'  (一) 複習：回顧與「{unit}」相關的先備經驗\n  (二) 引起動機：\n     1.圖片分享：請學生分享與「{unit}」相關的圖片或生活經驗\n     2.說明活動：說明本節課將學習「{unit}」',
+             resources='電腦及投影片、圖片', assessment={g['key']: ('口說' if i == 0 else '指認圖片') for i, g in enumerate(active)}),
+        dict(phase='二、發展活動', minutes=demo,
+             content=f'  (一) 說明與示範\n     1.說明：教師說明「{unit}」的步驟與重點\n     2.示範：教師逐步示範，並以步驟圖卡提示\n     3.評量\n' + sub(lambda g: beh(g, '認知') or '能說出或指認步驟'),
+             resources='教學步驟圖卡、實作材料', assessment=ass('認知', '口說')),
+        dict(phase='', minutes=prac,
+             content='  (二) 分組練習\n     1.說明：各組依目標進行練習，完成者可獲得增強（如集點印章）\n     2.練習開始\n' + num(lambda g: beh(g, '技能') or '完成實作', '       ') + '\n     3.複習步驟與重點',
+             resources='實作材料、增強物', assessment=ass('技能', '獨立操作')),
         dict(phase='三、綜合活動', minutes=wrap,
-             content=f'（一）以遊戲或實作檢核「{unit}」學習成果。\n（二）師生共同回顧今日學習內容，給予回饋與鼓勵。',
-             resources='計時器、記分板', groupSupport=per_group(gsup), assessment=per_group(gassess)),
+             content=f'  1.成果檢核：\n' + num(lambda g: beh(g, '技能') or '完成實作') + f'\n  2.總結及預告下節活動：複習「{unit}」重點，並說明下節課內容',
+             resources='實作材料、增強物', assessment=ass('技能', '獨立操作')),
     ]
-    for a in acts: a['id'] = uuid.uuid4().hex[:8]
+    for a in acts: a['id'] = uuid.uuid4().hex[:8]; a['groupSupport'] = {}
     return dict(activities=acts, total=sum(a['minutes'] for a in acts), minutes=minutes)
 
 def check_time(activities, minutes):
@@ -126,7 +147,7 @@ def check_time(activities, minutes):
 
 def course_structure(basic, domain, activities, focus_subject=None):
     """自動產生「課程架構」：課程 → 本單元 → 本節教學活動；有本校教學大綱者列出單元位置。皆可由教師修改。"""
-    course = basic.get('subjectLabel') or (domain or {}).get('label') or '本課程'
+    course = (basic.get('customDomain') if (domain or {}).get('key') == 'custom' else (domain or {}).get('label')) or basic.get('subjectLabel') or '本課程'
     group = re.split(r'[（(]', (domain or {}).get('group') or '')[0].strip()
     unit = basic.get('unit') or '本單元'
     lines = [course + (f'（{group}）' if group and group != '其他' else '')]
@@ -142,9 +163,14 @@ def course_structure(basic, domain, activities, focus_subject=None):
     lines.append(f'└ 單元：{unit}' + (f'（共{tp}節，本節第{pn}節）' if tp and pn else ''))
     if idx is not None and units[idx].get('items'):
         lines.append('　　├ 單元內容：' + '、'.join(units[idx]['items'])[:60])
-    acts = [a for a in activities if a.get('phase')]
-    for i, a in enumerate(acts):
-        first = re.sub(r'^（[一二三四五六七八九十]+）', '', (a.get('content') or '').split('\n')[0]).strip()
-        first = re.split(r'[，。；：]', first)[0][:24]
-        lines.append(('　　└ ' if i == len(acts) - 1 else '　　├ ') + f'{a["phase"]}（{a.get("minutes", "")}分）' + (f'：{first}' if first else ''))
+    phases = []
+    for a in activities:
+        subs = re.findall(r'^\s*[\(（][一二三四五六七八九十]+[\)）]\s*([^：:\n]+)', a.get('content') or '', re.M)
+        if a.get('phase') or not phases:
+            phases.append([a.get('phase') or '', int(a.get('minutes') or 0), subs])
+        else:
+            phases[-1][1] += int(a.get('minutes') or 0); phases[-1][2] += subs
+    for i, (ph, mins, subs) in enumerate(phases):
+        subs = [x.strip() for x in subs if x.strip()][:4]
+        lines.append(('　　└ ' if i == len(phases) - 1 else '　　├ ') + f'{ph}（{mins}分）' + (('：' + '、'.join(subs)) if subs else ''))
     return '\n'.join(lines)

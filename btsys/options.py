@@ -86,6 +86,8 @@ def _sh_domains():
     order = ['部定必修－一般科目', '部定必修－專業科目', '部定必修－實習科目', '部定必修－生活照護技能領域', '部定必修－家務處理技能領域',
              '部定必修－餐飲製作技能領域', '校訂必修－一般科目', '校訂必修－實習科目', '校訂選修－一般科目', '校訂選修－實習科目（同群跨科）']
     doms = sorted(seen.values(), key=lambda x: order.index(x['group']) if x['group'] in order else 99)
+    offered = {d['subject'] for d in doms if d['framework'] == 'special-needs'}
+    doms += [_d('sn:' + x, x, '其他特殊需求科目（依學生需求選用）', 'special-needs', x, 'loaded') for x in SN_SUBJECTS if x not in offered]
     return doms + [_d('custom', '其他／自訂', '其他', 'custom')]
 
 def build_options():

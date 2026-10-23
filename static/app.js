@@ -226,7 +226,8 @@ function domainsFor() {
 function autoSubjectLabel() {
   const b = S.plan.basic; const dom = domainsFor().find(x => x.key === b.domain);
   if (!dom) return;
-  const base = dom.key === 'custom' ? (b.customDomain || '') : (dom.framework === 'special-needs' ? dom.label : dom.label);
+  // 本校教案寫法：「領域/科目」，如「特殊需求/職業教育」「職業教育/基礎清潔實作」
+  const base = dom.key === 'custom' ? (b.customDomain || '') : dom.framework === 'special-needs' ? `特殊需求/${dom.label}` : ['service-group', 'school-practice'].includes(dom.framework) ? `職業教育/${dom.label}` : dom.label;
   b.subjectLabel = base;
 }
 function stepBasic() {
@@ -515,7 +516,7 @@ async function stepCurriculum() {
   const wrap = h('div', { class: 'card' }, h('h1', {}, '3. 確認課綱'));
   const kw = bind(b, 'keywords', h('input', { value: b.keywords || '', placeholder: '補充關鍵詞（選填）' }));
   const abil = p.students.filter(s => !s.excludeFromPlan).map(s => s.abilitySummary || '').filter(Boolean);
-  const load = async (rerender = true) => { S.rec = await api('POST', '/api/curriculum/recommend', { context: ctx(), unit: `${b.unit || ''} ${b.keywords || ''}`, course: b.subjectLabel || '', abilities: [], limit: 12 }); S.ctxItems = null; if (rerender) render(); };
+  const load = async (rerender = true) => { S.rec = await api('POST', '/api/curriculum/recommend', { context: ctx(), unit: `${b.unit || ''} ${b.keywords || ''}`, course: (deptObj()?.domains.find(x => x.key === b.domain)?.label) || b.subjectLabel || '', abilities: [], limit: 12 }); S.ctxItems = null; if (rerender) render(); };
   if (!S.rec) await load(false).catch(e => toast(e.message));
   await revalidate(false);
   const rec = S.rec || { status: '待確認', reason: '' };
@@ -546,7 +547,7 @@ async function stepCurriculum() {
   more.append(searchBox());
   wrap.append(more,
     h('h2', {}, '議題融入'),
-    bind(p, 'issuesText', h('textarea', { value: p.issuesText || '', placeholder: '依《議題融入說明手冊》填寫，例：品德教育／品U1（選填）' })));
+    bind(p, 'issuesText', h('textarea', { value: p.issuesText || '', placeholder: '議題：品德教育\n學習主題：品U1 重視群體規範與榮譽（依《議題融入說明手冊》填寫）' })));
   return wrap;
 }
 function isSel(k, id) { return S.plan.curriculum[k].some(x => x.itemId === id); }
@@ -652,7 +653,7 @@ function stepGroups() {
 }
 const nameOf = (k) => { const s = S.plan.students.find(x => x.key === k); return s ? (s.code || s.name) : k; };
 function newGoal(g) { const cur = S.plan.curriculum; return { id: uid(), groupKey: g.key, domain: '認知', situation: '', behavior: '', support: '', criterion: '', criterionSuggested: true, responseModes: ['口語'], performanceCodes: cur.performance.slice(0, 1).map(x => x.code), contentCodes: cur.content.slice(0, 1).map(x => x.code), assessment: '' }; }
-function composeGoal(go) { return `${go.situation}，${go.support}，${go.behavior}，達成標準：${go.criterion}${go.criterionSuggested ? '（建議值，請教師確認）' : ''}。`.replace(/，，+/g, '，').replace(/^，/, ''); }
+function composeGoal(go) { return [go.situation, go.support, go.behavior].filter(Boolean).join('，') + '。'; }
 function goalEditor(g, go) {
   const comp = h('div', { class: 'composed' }, go.text || composeGoal(go));
   const upd = () => { go.text = composeGoal(go); comp.textContent = go.text; };
@@ -719,7 +720,13 @@ function fieldsFromPlan() {
   const p = S.plan, b = p.basic, cur = p.curriculum;
   const items = (l) => l.map(x => `${x.code} ${x.teacherText || x.officialText}`).join('\n') || '待確認';
   const gl = [];
-  for (const g of p.groups) { const gg = p.goals[g.key] || []; if (!g.studentKeys.length && !gg.length) continue; gl.push(`${g.name}目標`); gg.forEach((x, i) => gl.push(`${i + 1}.（${x.domain}）${x.text || composeGoal(x)}`)); }
+  const act = p.groups.filter(g => g.studentKeys.length || (p.goals[g.key] || []).length);
+  ['認知', '情意', '技能'].forEach((dom, i) => {
+    const items = act.flatMap(g => (p.goals[g.key] || []).filter(x => x.domain === dom).map(x => [g.key, x.text || composeGoal(x)]));
+    if (!items.length) return;
+    if (new Set(items.map(x => x[1])).size === 1 && items.length === act.length) gl.push(`${i + 1}.${dom}：${items[0][1]}`);
+    else { gl.push(`${i + 1}.${dom}`); items.forEach(([k, t]) => gl.push(`  ${i + 1}-${k}${t}`)); }
+  });
   return { core: items(cur.core), focus: '學習表現：\n' + items(cur.performance) + '\n學習內容：\n' + items(cur.content), goals: gl.join('\n') || '待確認' };
 }
 function ed(obj, key, cls, opts = {}) {
@@ -753,9 +760,9 @@ function stepPreview() {
   const t3 = h('table', { class: 'pv' }, h('colgroup', {}, ...[383.65, 48.7, 50.5, 62.9].map(w => h('col', { style: `width:${w / 545.75 * 100}%` }))),
     tr(h('th', {}, '教學活動'), h('th', {}, '教學\n資源'), h('th', {}, '教學\n時間'), h('th', { style: 'font-size:.75rem' }, '評量\n方式\n(需列出A、B、C組評量方式)')));
   for (const a of p.activities) {
-    const content = h('td', {}, h('strong', {}, a.phase), h('div', { contenteditable: 'true', oninput: (e) => { a.content = e.target.innerText; markDirty(); } }, a.content),
-      h('div', { class: 'hint' }, '【各組支持】' + Object.entries(a.groupSupport || {}).map(([k, v]) => `${k}組：${v}`).join('；')));
-    t3.append(tr(content, ed(a, 'resources'), ed(a, 'minutes', 'c', { number: true }), h('td', {}, Object.entries(a.assessment || {}).map(([k, v]) => `${k}：${v}`).join('\n'))));
+    const content = h('td', {}, h('strong', {}, a.phase), h('div', { contenteditable: 'true', style: 'white-space:pre-wrap', oninput: (e) => { a.content = e.target.innerText; markDirty(); } }, a.content),
+      null);
+    t3.append(tr(content, ed(a, 'resources'), ed(a, 'minutes', 'c', { number: true }), h('td', {}, Object.entries(a.assessment || {}).map(([k, v]) => `${k}${v}`).join('\n'))));
   }
   return h('div', { class: 'card' }, h('h1', { class: 'no-print' }, '6. 編輯預覽'),
     h('p', { class: 'hint no-print' }, '淡黃色欄位可直接修改。'),

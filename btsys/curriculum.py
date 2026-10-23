@@ -120,9 +120,11 @@ class Store:
         if not base['items']:
             return dict(status=base['status'], reason=base['reason'], core=[], performance=[], content=[])
         qw = Counter()
-        for b in bigrams(unit or ''): qw[b] += 3.0
+        cb = set(bigrams(course or ''))
+        # 單元名稱中與課程名稱重複的詞（如「清潔」）區辨力低，降權；單元特有詞（如「貨架」「地板」）為主
+        for b in bigrams(unit or ''): qw[b] += 1.0 if b in cb else 3.0
         for k, vs in EXPAND.items():
-            if k in (unit or ''):
+            if k in (unit or '') and k not in (course or ''):
                 for v in vs:
                     for b in bigrams(v): qw[b] += 1.5
         qu = Counter(qw)  # 僅單元名稱（含同義擴充）

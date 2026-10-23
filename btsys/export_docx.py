@@ -78,6 +78,21 @@ def _page_number_footer(section):
         else:
             it = OxmlElement('w:instrText'); it.set(qn('xml:space'), 'preserve'); it.text = txt; run._r.append(it)
 
+def goals_text(groups, goals):
+    """學習目標依本校教案寫法：1.認知／2.情意／3.技能，各組以 1-A、1-B 分列；各組相同者合併為一句。"""
+    act = [g for g in groups if g.get('studentKeys') or goals.get(g['key'])]
+    out = []
+    for i, dom in enumerate(('認知', '情意', '技能'), 1):
+        items = [(g['key'], x.get('text') or '') for g in act for x in (goals.get(g['key']) or []) if x.get('domain') == dom]
+        if not items: continue
+        texts = {t for _, t in items}
+        if len(texts) == 1 and len(items) == len(act):
+            out.append(f'{i}.{dom}：{items[0][1]}')
+        else:
+            out.append(f'{i}.{dom}')
+            out.extend(f'  {i}-{k}{t}' for k, t in items)
+    return '\n'.join(out)
+
 def plan_fields(plan):
     """把教案資料整理為各儲存格文字（預覽與 Word 共用同一份）。"""
     b = plan.get('basic', {})
@@ -86,20 +101,14 @@ def plan_fields(plan):
         return '\n'.join(f'{x["code"]} {x.get("teacherText") or x["officialText"]}' for x in lst) or '待確認'
     groups = plan.get('groups', [])
     goals = plan.get('goals', {})
-    gl = []
-    for g in groups:
-        gg = goals.get(g['key']) or []
-        if not g.get('studentKeys') and not gg: continue
-        gl.append(f'{g["name"]}目標')
-        for i, x in enumerate(gg, 1):
-            gl.append(f'{i}.（{x["domain"]}）{x.get("text") or ""}')
+    gl = goals_text(groups, goals)
     return dict(
         dept=b.get('dept'), date=b.get('dateText') or b.get('date') or '', teacher=b.get('teacher', ''),
         subject=b.get('subjectLabel', ''), unit=b.get('unit', ''), totalPeriods=str(b.get('totalPeriods') or ''),
         periodNo=str(b.get('periodNo') or ''), stageText=b.get('stageText', ''),
         core=items(cur.get('core', [])),
         focus='學習表現：\n' + items(cur.get('performance', [])) + '\n學習內容：\n' + items(cur.get('content', [])),
-        issues=plan.get('issuesText') or '', goals='\n'.join(gl) or '待確認')
+        issues=plan.get('issuesText') or '', goals=gl or '待確認')
 
 PT = 1 / 28.3465  # pt → cm
 
@@ -175,18 +184,20 @@ def build_docx(plan):
     lab(hd.cells[0], '教學活動'); lab(hd.cells[1], '教學\n資源'); _set_cell(hd.cells[2], '教學\n時間', 11, False, 'center')
     _set_cell(hd.cells[3], '評量\n方式\n(需列出A、B、C組評量方式)', 9, False, 'center')
     content, res, tm, ass = [], [], [], []
+    def pad(col, text, n):
+        lines = (text or '').split('\n')
+        col.extend(lines + [''] * max(0, n - len(lines)))
     for a in acts:
-        content.append(a['phase']); content.append(a.get('content', ''))
-        gs = a.get('groupSupport') or {}
-        if any(gs.values()):
-            content.append('【各組支持】' + '；'.join(f'{gname.get(k, k)}組：{v}' for k, v in gs.items() if v))
-        mark = a['phase'].split('、')[0] + '、'
-        res.append(mark + (a.get('resources') or '')); tm.append(f'{a.get("minutes", "")}')
+        seg = ([a['phase']] if a.get('phase') else []) + (a.get('content') or '').split('\n')
+        n = len(seg)
+        content.extend(seg)
+        pad(res, a.get('resources') or '', n)
+        pad(tm, f'{a.get("minutes", "")}分' if a.get('minutes') not in (None, '') else '', n)
         asg = a.get('assessment') or {}
-        ass.append(mark + '\n'.join(f'{gname.get(k, k)}:{v}' for k, v in asg.items() if v))
+        pad(ass, '\n'.join(f'{gname.get(k, k)}{v}' for k, v in asg.items() if v), n)
     row = t3.rows[1]
     val(row.cells[0], '\n'.join(content), 'left', 'top')
-    val(row.cells[1], '\n\n'.join(res), 'justify', 'top')
-    val(row.cells[2], '\n\n'.join(tm), 'center', 'top', 11)
-    val(row.cells[3], '\n\n'.join(ass), 'justify', 'top', 10)
+    val(row.cells[1], '\n'.join(res), 'left', 'top')
+    val(row.cells[2], '\n'.join(tm), 'center', 'top')
+    val(row.cells[3], '\n'.join(ass), 'left', 'top')
     bio = io.BytesIO(); doc.save(bio); return bio.getvalue()

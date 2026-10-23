@@ -438,7 +438,8 @@ def create_app(test_config=None):
 
     def _summary_from(a):
         parts = [(x.get('teacherText') or x['quote']).strip().rstrip('。；') for x in a.get('abilities', []) if not x.get('excluded')]
-        return '。'.join(parts) + ('。' if parts else '')
+        if len(parts) <= 1: return parts[0] if parts else ''
+        return '\n'.join(f'{i}. {t}' for i, t in enumerate(parts, 1))  # 本校寫法：逐條列出
 
     def opt_domain_label(b):
         dom = options.find_domain(b.get('dept'), b.get('domain')) or {}
@@ -502,11 +503,12 @@ def create_app(test_config=None):
             notes.append(f'{st.get("code") or st.get("name")}：佐證不足以推估支持程度，暫列{groups[0]["name"]}，請視需要調整。')
         plan['groups'] = groups; plan['groupRationale'] = gr
         # 3. 依課程（領域／科目）與單元名稱自動抓取課綱；教學流程中的通用句型不納入計分，避免干擾
-        course = b.get('subjectLabel') or (opt_domain_label(b))
+        course = opt_domain_label(b) or b.get('subjectLabel', '')
         rec = store.recommend(ctx, b.get('unit', ''), [], 400, course=course)  # 依課程與單元名稱抓取；學生資料不納入計分以免偏題
         cur = dict(core=[], performance=[], content=[]); focus = None
-        if rec.get('status') != '待確認':
-            focus = _focus_subject(rec)
+
+        def pick(rec, focus):
+            out = dict(core=[], performance=[], content=[])
             for label, (k, n) in AUTO_PICK.items():
                 pool = rec.get(k, [])
                 if focus and k != 'core': pool = [x for x in pool if x.get('subject') == focus]
@@ -514,10 +516,27 @@ def create_app(test_config=None):
                 ranked = sorted(pool, key=lambda x: (not x.get('defaultStage'), not x.get('unitMatch', 0) > 0, not x.get('match', 0) > 0, -x['score']))
                 if k == 'core': ranked = [x for x in ranked if x.get('defaultStage')]
                 for it in ranked[:n]:
-                    cur[k].append(dict(itemId=it['id'], code=it['code'], type=it['type'], subject=it['subject'], officialText=it['text'],
+                    out[k].append(dict(itemId=it['id'], code=it['code'], type=it['type'], subject=it['subject'], officialText=it['text'],
                                        teacherText='', source=it.get('source'), stageLabel=it.get('stageLabel'), autoPicked=True))
-            bad = {r['itemId'] for r in store.validate(ctx, cur['core'] + cur['performance'] + cur['content']) if r['level'] == 'error'}
-            for k in cur: cur[k] = [x for x in cur[k] if x['itemId'] not in bad]
+            bad = {r['itemId'] for r in store.validate(ctx, out['core'] + out['performance'] + out['content']) if r['level'] == 'error'}
+            return {k: [x for x in v if x['itemId'] not in bad] for k, v in out.items()}
+
+        if rec.get('status') != '待確認':
+            focus = _focus_subject(rec)
+            cur = pick(rec, focus)
+            # 部定科目的學習內容與單元名稱明顯不符時（如「基礎清潔實作／貨架清潔」），改取服務群中本科適用、最相符的單一科目
+            dom = options.find_domain(b.get('dept'), b.get('domain')) or {}
+            own_best = max([x.get('unitMatch', 0) for x in rec.get('content', [])] or [0])
+            if not focus and dom.get('framework') == 'service-group':
+                sch = next((d['key'] for d in options.domains_for('sh', None, b.get('shDept')) if d.get('framework') == 'school-practice'), None)
+                if sch:
+                    rec2 = store.recommend(dict(ctx, domain=sch), b.get('unit', ''), [], 400, course=course)
+                    rec2 = dict(rec2, **{k: [x for x in rec2.get(k, []) if not x.get('foreignDomain')] for k in ('performance', 'content')})
+                    f2 = _focus_subject(rec2)
+                    best2 = max([x.get('unitMatch', 0) for x in rec2.get('content', []) if x.get('subject') == f2] or [0])
+                    if f2 and f2 != dom.get('subject') and best2 > max(own_best * 3, 0.01):
+                        alt = pick(dict(rec, performance=rec2['performance'], content=rec2['content']), f2)
+                        if alt['performance'] and alt['content']: cur, focus = alt, f2
         else:
             notes.append('此領域／科目尚未載入可信課綱資料，核心素養、學習表現、學習內容標示「待確認」。')
         plan['curriculum'] = dict(plan.get('curriculum', {}), **cur)
