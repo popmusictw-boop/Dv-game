@@ -228,7 +228,7 @@ function autoSubjectLabel() {
   const b = S.plan.basic; const dom = domainsFor().find(x => x.key === b.domain);
   if (!dom) return;
   const base = dom.key === 'custom' ? (b.customDomain || '') : (dom.framework === 'special-needs' ? dom.label : dom.label);
-  b.subjectLabel = base + (b.courseName ? '/' + b.courseName : '');
+  b.subjectLabel = base;
 }
 function stepBasic() {
   const b = S.plan.basic; const wrap = h('div', { class: 'card' }, h('h1', {}, '1. 基本資料'));
@@ -284,8 +284,7 @@ function stepBasic() {
   if (b.date && !b.dateText) b.dateText = rocDate(b.date);
   wrap.append(
     h('div', { class: 'grid' }, h('label', {}, '部別', dSel), h('label', {}, '班級', stage)), shBox,
-    h('div', { class: 'grid' }, h('label', {}, '領域／科目', domSel, domNote), custom,
-      h('label', {}, '課程名稱（選填，例：餐飲服務禮儀實作）', bind(b, 'courseName', h('input', { value: b.courseName || '' }), () => { autoSubjectLabel(); subj.value = b.subjectLabel || ''; }))),
+    h('div', { class: 'grid' }, h('label', {}, '領域／科目', domSel, domNote), custom),
     unitBox,
     h('div', { class: 'grid' },
       h('label', {}, '單元名稱', unitIn),
