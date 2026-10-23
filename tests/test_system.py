@@ -46,10 +46,11 @@ class T1Options(Base):
         self.assertEqual(deps, ['幼兒園', '國小部', '國中部', '技高部'])
         kg = [x['label'] for x in options.domains_for('kg')]
         self.assertIn('身體動作與健康', kg); self.assertNotIn('社會技巧', kg)
-        e1 = [x['subject'] for x in options.domains_for('elem', 'e1')]
-        self.assertIn('生活課程', e1); self.assertNotIn('社會', e1); self.assertIn('生活管理', e1)
-        e5 = [x['subject'] for x in options.domains_for('elem', 'e5')]
-        self.assertIn('社會', e5); self.assertNotIn('生活課程', e5)
+        self.assertEqual([g['label'] for g in options.find_dept('elem')['grades']], ['小1', '小2'])
+        self.assertEqual([g['label'] for g in options.find_dept('sh')['grades']], ['高一', '高二', '高三'])
+        c1 = [x['subject'] for x in options.domains_for('elem', 'e-c1')]
+        self.assertIn('生活課程', c1); self.assertIn('社會', c1); self.assertIn('生活管理', c1)
+        self.assertEqual(c1, [x['subject'] for x in options.domains_for('elem', 'e-c2')])
         j7 = [x['subject'] for x in options.domains_for('jh', 'j7')]
         j8 = [x['subject'] for x in options.domains_for('jh', 'j8')]
         j9 = [x['subject'] for x in options.domains_for('jh', 'j9')]

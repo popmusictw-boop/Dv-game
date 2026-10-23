@@ -59,7 +59,8 @@ SCHOOL_SOURCES = [dict(SCHOOL_SH['source'], scope='技高部科別與科目'), d
 
 def _ej_domains(level, prefix):
     data = SCHOOL_EJ[level]
-    gk = lambda gs: [f'{prefix}{g}' for g in gs]
+    # 國小部混齡：所有領域兩班皆可選（不依年級篩選）；國中部依年級篩選
+    gk = (lambda gs: None) if level == 'elem' else (lambda gs: [f'{prefix}{g}' for g in gs])
     out = [_d('gen:' + x['name'], x['name'] + (f'（{x["note"]}）' if x.get('note') and x['name'] == '語文' else ''), '部定課程－領域學習', 'general', x['name'], grades=gk(x['grades'])) for x in data['domains']]
     offered = {x['name'] for x in data['specialNeeds']}
     out += [_d('sn:' + x['name'], x['name'], '校訂課程－特殊需求領域（本校課程架構）', 'special-needs', x['name'], 'loaded', grades=gk(x['grades'])) for x in data['specialNeeds']]
@@ -94,14 +95,12 @@ def build_options():
         dict(key='kg-4', label='中班（4-5歲）', stage='kg'), dict(key='kg-5', label='大班（5-6歲）', stage='kg')],
         domains=[_d('kg:' + x, x, '幼兒園教保活動課程大綱領域', 'kindergarten') for x in KG_DOMAINS]
                 + [_d('custom', '其他／自訂', '其他', 'custom')]))
-    eg = []
-    for g in range(1, 7):
-        stg = {1: 'Ⅰ', 2: 'Ⅰ', 3: 'Ⅱ', 4: 'Ⅱ', 5: 'Ⅲ', 6: 'Ⅲ'}[g]
-        eg.append(dict(key=f'e{g}', label=f'{"一二三四五六"[g-1]}年級', stage=stg, level='E', grade=g))
+    # 本校國小部為混齡編班，分小1、小2兩班；不對應單一年級，學習階段依學生能力選用（Ⅰ～Ⅲ）
+    eg = [dict(key=f'e-c{n}', label=f'小{n}', stage=None, level='E', mixed=True) for n in (1, 2)]
     deps.append(dict(key='elem', label='國小部', grades=eg, domains=_ej_domains('elem', 'e')))
     jg = [dict(key=f'j{g}', label=f'{"七八九"[g-7]}年級', stage='Ⅳ', level='J', grade=g) for g in (7, 8, 9)]
     deps.append(dict(key='jh', label='國中部', grades=jg, domains=_ej_domains('jh', 'j')))
-    sg = [dict(key=f's{g}', label=f'高{"一二三"[g-10]}（{g}年級）', stage='Ⅴ', level='U', grade=g) for g in (10, 11, 12)]
+    sg = [dict(key=f's{g}', label=f'高{"一二三"[g-10]}', stage='Ⅴ', level='U', grade=g) for g in (10, 11, 12)]
     deps.append(dict(key='sh', label='技高部', grades=sg,
         clusters=[dict(key='服務群', label='服務群', departments=[dict(key=k, label=k, skillDomains=v['skillDomains']) for k, v in SCHOOL_SH['departments'].items()])],
         domains=_sh_domains()))

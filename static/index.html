@@ -22,7 +22,7 @@
     <h1>教師登入</h1>
     <p class="muted">本系統處理學生個人資料，僅限授權教師使用。帳號由學校管理者建立。</p>
     <form id="loginForm" autocomplete="on">
-      <label>帳號<input name="username" required autocomplete="username"></label>
+      <label>帳號（校內 Email 或 t 開頭編號）<input name="username" required autocomplete="username" autocapitalize="none" placeholder="例：t1234 或 t1234@tpmr.tp.edu.tw"></label>
       <label>密碼<input name="password" type="password" required autocomplete="current-password"></label>
       <button class="btn primary block" type="submit">登入</button>
       <p class="error" id="loginErr" role="alert"></p>

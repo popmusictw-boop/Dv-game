@@ -145,7 +145,9 @@ def create_app(test_config=None):
     @app.post('/api/login')
     def login():
         d = request.get_json(force=True)
-        u = dbm.get_db().execute('SELECT * FROM users WHERE username=? AND active=1', (d.get('username', ''),)).fetchone()
+        uname = (d.get('username') or '').strip().lower()
+        if uname.endswith('@tpmr.tp.edu.tw'): uname = uname.split('@')[0]  # 校內信箱可直接當帳號登入
+        u = dbm.get_db().execute('SELECT * FROM users WHERE username=? AND active=1', (uname,)).fetchone()
         if not u or not check_password_hash(u['password_hash'], d.get('password', '')):
             time.sleep(0.5)
             return jsonify(error='帳號或密碼錯誤'), 401
@@ -491,7 +493,7 @@ def create_app(test_config=None):
         if len(d.get('password', '')) < 10: return jsonify(error='密碼至少 10 碼'), 400
         try:
             dbm.get_db().execute('INSERT INTO users(username,display_name,password_hash,is_admin,must_change,created_at) VALUES(?,?,?,?,1,?)',
-                                 (d['username'], d.get('name') or d['username'], generate_password_hash(d['password']), int(bool(d.get('admin'))), time.time()))
+                                 (d['username'].strip().lower(), d.get('name') or d['username'], generate_password_hash(d['password']), int(bool(d.get('admin'))), time.time()))
             dbm.get_db().commit()
         except Exception:
             return jsonify(error='帳號已存在'), 400

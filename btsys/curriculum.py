@@ -99,6 +99,9 @@ class Store:
                 else:
                     default = (it['stage'] == g.get('level'))
                     if not default: stage_note = f'非本學習階段（本年級對應 {g.get("level", "?")}）'
+            elif subj in ROMAN_STAGE_SUBJECTS and g.get('mixed'):
+                default = it['stage'] in ('Ⅰ', 'Ⅱ', 'Ⅲ')
+                stage_note = '混齡班：學習階段（Ⅰ～Ⅲ）依學生能力選用'
             elif subj in ROMAN_STAGE_SUBJECTS:
                 default = (it['stage'] == g.get('stage'))
                 if not default: stage_note = f'非本年級對應階段（{g.get("stage", "?")}）；領綱允許依學生能力往前或往後選取'
