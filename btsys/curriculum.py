@@ -115,7 +115,7 @@ class Store:
         hits = [(b, query_weights[b] * self.idf.get(b, 1.0)) for b in tb if b in query_weights]
         return sum(w for _, w in hits), [b for b, _ in sorted(hits, key=lambda x: -x[1])]
 
-    def recommend(self, ctx, unit, ability_texts, limit=12):
+    def recommend(self, ctx, unit, ability_texts, limit=12, course=''):
         base = self.context_items(ctx)
         if not base['items']:
             return dict(status=base['status'], reason=base['reason'], core=[], performance=[], content=[])
@@ -125,6 +125,13 @@ class Store:
             if k in (unit or ''):
                 for v in vs:
                     for b in bigrams(v): qw[b] += 1.5
+        qu = Counter(qw)  # 僅單元名稱（含同義擴充）
+        # 課程（領域／科目）名稱：次於單元名稱的權重
+        for b in bigrams(course or ''): qw[b] += 1.5
+        for k, vs in EXPAND.items():
+            if k in (course or '') and k not in (unit or ''):
+                for v in vs:
+                    for b in bigrams(v): qw[b] += 0.8
         for t in ability_texts or []:
             for b in set(bigrams(t)): qw[b] += 0.4
         res = {'核心素養': [], '學習表現': [], '學習內容': []}
@@ -132,15 +139,17 @@ class Store:
         own = set(opt.SV_DEPTS.get(ctx.get('shDept') or '', []))
         for it in base['items']:
             sc, terms = self.score(it['text'] + ' ' + (it.get('dimension') or ''), qw)
+            match = round(sc, 2)
+            unit_match = round(self.score(it['text'] + ' ' + (it.get('dimension') or ''), qu)[0], 2)
             if domain.get('framework') == 'school-practice' and it['type'] != '核心素養' and (not it.get('skillDomain') or it['skillDomain'] in own):
                 sc += 3.0
             if it['defaultStage']: sc += 8.0
             elif it['type'] == '核心素養': sc -= 50.0
             reason = []
-            if terms: reason.append('與單元／學生能力共同詞：' + '、'.join(_merge_terms(terms)[:5]))
+            if terms: reason.append('與課程／單元名稱共同詞：' + '、'.join(_merge_terms(terms)[:5]))
             if it['defaultStage'] and it['type'] != '核心素養': reason.append('符合本年級學習階段')
             if it.get('stageNote'): reason.append(it['stageNote'])
-            res[it['type']].append(dict(it, score=round(sc, 2), reason='；'.join(reason) or '同科目項目（系統推估相關性低）'))
+            res[it['type']].append(dict(it, score=round(sc, 2), match=match, unitMatch=unit_match, reason='；'.join(reason) or '同科目項目（系統推估相關性低）'))
         for k in res:
             res[k].sort(key=lambda x: (-x['score'], x['code']))
         # 核心素養只推薦本教育階段（其餘仍可在「展開全部」中選用）

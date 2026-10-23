@@ -53,7 +53,7 @@ with sync_playwright() as p:
     shot(page, '2_upload')
     page.click('button:has-text("自動生成教案")')
     # 3 課綱（自動選取）
-    page.wait_for_selector('text=已依單元內容自動選取')
+    page.wait_for_selector('text=已依課程與單元名稱自動選取')
     if page.locator('dialog[open]').count(): page.click('dialog >> text=知道了')
     page.wait_for_selector('.sel-item')
     n_sel = page.locator('.sel-item').count(); assert n_sel >= 3, f'自動選取課綱過少：{n_sel}'

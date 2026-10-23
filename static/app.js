@@ -507,7 +507,7 @@ async function stepCurriculum() {
   const wrap = h('div', { class: 'card' }, h('h1', {}, '3. 確認課綱'));
   const kw = bind(b, 'keywords', h('input', { value: b.keywords || '', placeholder: '補充關鍵詞（選填）' }));
   const abil = p.students.filter(s => !s.excludeFromPlan).map(s => s.abilitySummary || '').filter(Boolean);
-  const load = async (rerender = true) => { S.rec = await api('POST', '/api/curriculum/recommend', { context: ctx(), unit: `${b.unit || ''} ${b.keywords || ''}`, abilities: abil, limit: 12 }); S.ctxItems = null; if (rerender) render(); };
+  const load = async (rerender = true) => { S.rec = await api('POST', '/api/curriculum/recommend', { context: ctx(), unit: `${b.unit || ''} ${b.keywords || ''}`, course: b.subjectLabel || '', abilities: [], limit: 12 }); S.ctxItems = null; if (rerender) render(); };
   if (!S.rec) await load(false).catch(e => toast(e.message));
   await revalidate(false);
   const rec = S.rec || { status: '待確認', reason: '' };
@@ -521,7 +521,7 @@ async function stepCurriculum() {
     } catch (e) { toast(e.message); }
   };
   wrap.append(h('div', { class: 'row space' },
-    h('span', { class: 'hint' }, rec.status === '待確認' ? '此科目尚無官方課綱資料，教案將顯示「待確認」' : '已依單元內容自動選取（官方原文），可移除或加入'),
+    h('span', { class: 'hint' }, rec.status === '待確認' ? '此科目尚無官方課綱資料，教案將顯示「待確認」' : '已依課程與單元名稱自動選取（官方原文），可移除或加入'),
     p.autogen ? h('button', { class: 'btn small', onclick: regen }, '依課綱重新產生目標與活動') : null));
   for (const [k, label] of TYPES) {
     wrap.append(h('h2', {}, `${label}（${p.curriculum[k].length}）`));

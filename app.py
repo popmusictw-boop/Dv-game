@@ -205,7 +205,7 @@ def create_app(test_config=None):
     @login_required
     def cur_recommend():
         d = request.get_json(force=True)
-        return jsonify(store.recommend(d.get('context', {}), d.get('unit', ''), d.get('abilities', []), int(d.get('limit', 12))))
+        return jsonify(store.recommend(d.get('context', {}), d.get('unit', ''), d.get('abilities', []), int(d.get('limit', 12)), course=d.get('course', '')))
 
     @app.post('/api/curriculum/items')
     @login_required
@@ -436,6 +436,10 @@ def create_app(test_config=None):
         parts = [(x.get('teacherText') or x['quote']).strip().rstrip('。；') for x in a.get('abilities', []) if not x.get('excluded')]
         return '。'.join(parts) + ('。' if parts else '')
 
+    def opt_domain_label(b):
+        dom = options.find_domain(b.get('dept'), b.get('domain')) or {}
+        return b.get('customDomain') if dom.get('key') == 'custom' else dom.get('label', '')
+
     @app.post('/api/drafts/<int:did>/autogen')
     @login_required
     def autogen(did):
@@ -470,14 +474,17 @@ def create_app(test_config=None):
             st = next(s for s in students if s['key'] == u['studentKey'])
             notes.append(f'{st.get("code") or st.get("name")}：佐證不足以推估支持程度，暫列{groups[0]["name"]}，請視需要調整。')
         plan['groups'] = groups; plan['groupRationale'] = gr
-        # 3. 依教案內容（單元名稱、本校教學大綱細項）自動抓取課綱；教學流程中的通用句型不納入計分，避免干擾
-        gen_text = ' '.join([b.get('unit', ''), b.get('keywords', '')])
-        rec = store.recommend(ctx, gen_text, [], 12)  # 以教案單元內容為準，學生資料原句不納入計分以免偏題
+        # 3. 依課程（領域／科目）與單元名稱自動抓取課綱；教學流程中的通用句型不納入計分，避免干擾
+        course = b.get('subjectLabel') or (opt_domain_label(b))
+        rec = store.recommend(ctx, b.get('unit', ''), [], 30, course=course)  # 依課程與單元名稱抓取；學生資料不納入計分以免偏題
         cur = dict(core=[], performance=[], content=[])
         if rec.get('status') != '待確認':
             for label, (k, n) in AUTO_PICK.items():
                 pool = rec.get(k, [])
-                for it in ([x for x in pool if x.get('defaultStage')] + [x for x in pool if not x.get('defaultStage') and k != 'core'])[:n]:
+                # 符合學習階段者優先；其中先取與單元名稱相關者，再取與課程名稱相關者
+                ranked = sorted(pool, key=lambda x: (not x.get('defaultStage'), not x.get('unitMatch', 0) > 0, not x.get('match', 0) > 0, -x['score']))
+                if k == 'core': ranked = [x for x in ranked if x.get('defaultStage')]
+                for it in ranked[:n]:
                     cur[k].append(dict(itemId=it['id'], code=it['code'], type=it['type'], subject=it['subject'], officialText=it['text'],
                                        teacherText='', source=it.get('source'), stageLabel=it.get('stageLabel'), autoPicked=True))
             bad = {r['itemId'] for r in store.validate(ctx, cur['core'] + cur['performance'] + cur['content']) if r['level'] == 'error'}
