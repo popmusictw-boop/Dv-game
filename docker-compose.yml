@@ -1,0 +1,11 @@
+services:
+  btlesson:
+    build: .
+    env_file: .env
+    volumes:
+      - btdata:/data
+    ports:
+      - "127.0.0.1:8000:8000"   # 由學校的反向代理（HTTPS）對外提供
+    restart: unless-stopped
+volumes:
+  btdata:

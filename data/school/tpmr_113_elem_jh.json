@@ -1,0 +1,35 @@
+{
+ "source": {"title": "113學年度國小國中架構表（臺北市立臺北特殊教育學校）", "file": "113學年度國小國中架構表.docx",
+            "drive": "https://docs.google.com/document/d/1w2yAXXHIisV0bXf2YkhV9di-DzLMvJph/edit",
+            "note": "本校語文領域包含本土語文、台灣手語及英語文單元。括號內為彈性學習課程（特殊需求領域）節數；( )表示該年級未開設。"},
+ "elem": {
+   "domains": [
+     {"name": "語文", "grades": [1,2,3,4,5,6], "periods": [5,5,5,5,6,6], "note": "含國語文、本土語文、臺灣手語及英語文單元"},
+     {"name": "數學", "grades": [1,2,3,4,5,6], "periods": [3,3,3,3,3,3]},
+     {"name": "生活課程", "grades": [1,2], "periods": [6,6], "note": "一、二年級社會、自然科學、藝術、綜合活動統整為生活課程"},
+     {"name": "社會", "grades": [3,4,5,6], "periods": [3,3,3,3]},
+     {"name": "自然科學", "grades": [3,4,5,6], "periods": [2,2,2,2]},
+     {"name": "藝術", "grades": [3,4,5,6], "periods": [3,3,3,3]},
+     {"name": "綜合活動", "grades": [3,4,5,6], "periods": [2,2,2,2]},
+     {"name": "健康與體育", "grades": [1,2,3,4,5,6], "periods": [5,5,5,5,6,6]}],
+   "specialNeeds": [
+     {"name": "生活管理", "grades": [1,2,3,4,5,6], "periods": [1,1,2,2,2,2]},
+     {"name": "功能性動作訓練", "grades": [1,2,3,4,5,6], "periods": [2,2,3,3,4,4]},
+     {"name": "溝通訓練", "grades": [1,2,3,4,5,6], "periods": [1,1,1,1,1,1]}]},
+ "jh": {
+   "domains": [
+     {"name": "語文", "grades": [7,8,9], "periods": [5,5,5], "note": "含國語文、本土語文、臺灣手語及英語文單元"},
+     {"name": "數學", "grades": [7,8,9], "periods": [3,3,3]},
+     {"name": "社會", "grades": [7,8,9], "periods": [3,4,4]},
+     {"name": "自然科學", "grades": [7,8,9], "periods": [3,2,2]},
+     {"name": "藝術", "grades": [7,8,9], "periods": [4,4,3]},
+     {"name": "綜合活動", "grades": [7,8,9], "periods": [3,3,4]},
+     {"name": "科技", "grades": [7,8,9], "periods": [1,1,1]},
+     {"name": "健康與體育", "grades": [7,8,9], "periods": [3,4,3]}],
+   "specialNeeds": [
+     {"name": "生活管理", "grades": [7,8,9], "periods": [4,4,4]},
+     {"name": "溝通訓練", "grades": [7], "periods": [1]},
+     {"name": "功能性動作訓練", "grades": [7,8,9], "periods": [4,4,2]},
+     {"name": "職業教育", "grades": [9], "periods": [3]}],
+   "other": [{"name": "班週會", "grades": [7,8,9], "periods": [1,1,1]}]}
+}

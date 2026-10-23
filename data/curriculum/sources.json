@@ -1,0 +1,31 @@
+{
+ "datasets": [
+  {
+   "file": "special_needs.json",
+   "title": "十二年國民基本教育身心障礙相關之特殊需求領域課程綱要",
+   "version": "中華民國108年7月",
+   "url": "https://stv.naer.edu.tw/data/course_outline/513721112.pdf",
+   "items": 1301,
+   "scope": "國小部、國中部、技高部之特殊需求領域（生活管理、社會技巧、學習策略、職業教育、溝通訓練、點字、定向行動、功能性動作訓練、輔助科技應用）",
+   "extractedBy": "tools/parse_special.py",
+   "verifiedBy": "tools/verify_curriculum.py（學習表現、學習內容逐字比對 PDF 全文：0 筆不符）"
+  },
+  {
+   "file": "service_group.json",
+   "title": "十二年國民基本教育高級中等教育階段學校集中式特殊教育班服務群科課程綱要",
+   "version": "中華民國110年4月",
+   "url": null,
+   "urlNote": "官方連結待確認；國教院網站查得108年7月版：https://stv.naer.edu.tw/data/course_outline/479056810.pdf",
+   "items": 1454,
+   "scope": "技高部服務群：群核心素養、專業科目、群必修實習科目、12項技能領域",
+   "extractedBy": "tools/parse_service.py",
+   "verifiedBy": "tools/verify_curriculum.py（0 筆不符）"
+  }
+ ],
+ "notLoaded": [
+  "幼兒園教保活動課程大綱（待匯入）",
+  "國小、國中各一般領域課綱（國語文、數學等，待匯入）",
+  "技高部一般科目課綱（待匯入）",
+  "議題融入學習主題與實質內涵（待匯入）"
+ ]
+}

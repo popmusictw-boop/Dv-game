@@ -1,0 +1,11 @@
+instance
+tests
+examples
+tools
+fonts
+data/curriculum/source
+data/school/source
+Dockerfile
+docker-compose.yml
+.env*
+**/__pycache__
