@@ -37,6 +37,36 @@ def create_app(test_config=None):
     with app.app_context():
         sync_imports()
 
+    # ---------- 上傳檔案隔日自動刪除 ----------
+    TZ = datetime.timezone(datetime.timedelta(hours=8))  # 臺灣時間
+    _last_purge = {'at': 0.0}
+
+    def purge_uploaded_files():
+        """刪除「今天（臺灣時間）以前」上傳的學生檔案本體與擷取文字，即上傳隔日起清除。
+        教案內容（教師確認後的能力敘述等）保留；如需一併刪除，教師可刪除分析資料或整份教案。"""
+        today0 = datetime.datetime.now(TZ).replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+        db = dbm.get_db()
+        rows = db.execute('SELECT id FROM files WHERE created_at < ?', (today0,)).fetchall()
+        if rows:
+            db.execute('DELETE FROM files WHERE created_at < ?', (today0,)); db.commit()
+            dbm.audit(None, 'auto_purge_files', len(rows))
+        _last_purge['at'] = time.time()
+        return len(rows)
+
+    @app.before_request
+    def lazy_purge():
+        # 除每日排程外，系統有人使用時每 10 分鐘也檢查一次，確保逾期檔案不會留存
+        if request.path.startswith('/api/') and time.time() - _last_purge['at'] > 600:
+            try: purge_uploaded_files()
+            except Exception: log.exception('自動刪除檔案失敗')
+
+    @app.get('/api/cron/purge')
+    def cron_purge():
+        secret = os.environ.get('CRON_SECRET')
+        if not secret or request.headers.get('Authorization') != f'Bearer {secret}':
+            return jsonify(error='forbidden'), 403
+        return jsonify(deleted=purge_uploaded_files())
+
     # ---------- 共用 ----------
     @app.after_request
     def headers(resp):
@@ -146,7 +176,7 @@ def create_app(test_config=None):
         ocr = extract.ocr_status(app.config['OCR_LANG'])
         return jsonify(
             aiEnabled=app.config['AI_ENABLED'], aiModel=app.config['AI_MODEL'] if app.config['AI_ENABLED'] else None,
-            ocr=ocr, retentionDays=app.config['RETENTION_DAYS'], maxUploadMb=app.config['MAX_UPLOAD_MB'],
+            ocr=ocr, retentionDays=app.config['RETENTION_DAYS'], filePolicy='next-day', maxUploadMb=app.config['MAX_UPLOAD_MB'],
             supported=extract.SUPPORTED, unsupported=extract.UNSUPPORTED_HINT)
 
     # ---------- 選單與課綱 ----------
@@ -474,6 +504,20 @@ def create_app(test_config=None):
             db.execute('UPDATE users SET password_hash=?, must_change=1 WHERE id=?', (generate_password_hash(d['password']), uid_))
         db.commit(); dbm.audit(g.user['id'], 'user_edit', uid_)
         return jsonify(ok=True)
+
+    @app.delete('/api/admin/users/<int:uid_>')
+    @admin_required
+    def delete_user(uid_):
+        db = dbm.get_db()
+        if uid_ == g.user['id']: return jsonify(error='不能刪除自己的帳號'), 400
+        if db.execute('SELECT id FROM drafts WHERE owner_id=?', (uid_,)).fetchone():
+            return jsonify(error='此帳號仍有教案，請先停用帳號或由該教師刪除教案'), 400
+        db.execute('DELETE FROM users WHERE id=?', (uid_,)); db.commit(); dbm.audit(g.user['id'], 'user_delete', uid_)
+        return jsonify(ok=True)
+
+    @app.cli.command('purge-files')
+    def purge_files_cmd():
+        print(f'已刪除 {purge_uploaded_files()} 個逾期上傳檔案')
 
     @app.cli.command('purge-old')
     def purge_old():

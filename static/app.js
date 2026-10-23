@@ -332,7 +332,7 @@ function privacyNotice() {
       h('li', {}, '處理位置：檔案上傳至學校自建之本系統伺服器，在伺服器上擷取文字與分析；檔案、擷取文字與教案內容皆以加密方式保存，僅上傳教師本人可存取。'),
       h('li', {}, p.aiEnabled ? `外部 AI：管理者已啟用（${p.aiModel}）。只有在您於分析時勾選同意後，才會將該生擷取文字（姓名以代號取代）送至 Anthropic API；預設不送出。` : '外部 AI：未啟用。所有分析皆在本系統伺服器以規則式比對完成，不送出任何資料。'),
       h('li', {}, 'OCR（掃描檔、照片）：' + p.ocr.message),
-      h('li', {}, `保存期限：最後修改起 ${p.retentionDays} 天後由系統清除；您可隨時刪除單一檔案、分析資料或整份教案（含所有檔案）。`),
+      h('li', {}, h('strong', {}, '上傳的學生檔案（含擷取文字）於上傳隔日（臺灣時間）自動刪除，請在上傳當天完成擷取分析與確認。'), `教案內容（含您確認的能力敘述）保留至最後修改起 ${p.retentionDays} 天；您可隨時刪除單一檔案、分析資料或整份教案。`),
       h('li', {}, '系統紀錄只記錄操作類型與編號，不記錄學生姓名或內容。建議以代號取代學生全名。')),
     h('div', { class: 'hint' }, '支援格式：' + [...new Set(Object.values(p.supported))].join('、') + `；單檔上限 ${p.maxUploadMb} MB。不支援：.doc、HEIC 等（會提示轉檔方式）。`));
 }
@@ -440,7 +440,8 @@ function abilityCard(s) {
     aiOn ? h('label', { class: 'inline' }, useAI, '使用外部 AI 輔助') : h('span', { class: 'hint' }, '本機規則式分析（不送出資料）'),
     aiOn ? h('label', { class: 'inline' }, consent, '我同意將此生擷取文字（姓名以代號取代）送至外部 AI') : null,
     a ? h('button', { class: 'btn small danger', onclick: async () => { if (!confirm('刪除此學生的分析資料？（上傳檔案保留）')) return; await api('DELETE', `/api/drafts/${S.draftId}/analysis/${s.key}`); delete S.plan.analyses[s.key]; s.abilityConfirmed = false; s.abilitySummary = ''; render(); } }, '刪除分析資料') : null));
-  if (!a) { box.append(h('p', { class: 'muted' }, '尚未分析。')); return box; }
+  if (!a) { box.append(h('p', { class: 'muted' }, S.files.some(f => f.studentKey === s.key) ? '尚未分析。' : '尚未分析，且此生目前沒有上傳檔案（檔案於上傳隔日自動刪除），請重新上傳。')); return box; }
+  if (!S.files.some(f => f.studentKey === s.key)) box.append(h('div', { class: 'notice' }, '此生上傳檔案已依規定於隔日自動刪除；以下佐證為當時擷取的紀錄，如需重新分析請重新上傳。'));
   box.append(h('div', { class: 'hint' }, `分析方式：${a.mode === 'ai' ? '外部 AI（引文已逐字核對）' : '本機規則式'}；產生時間 ${new Date(a.generatedAt * 1000).toLocaleString('zh-TW')}`));
   if (a.rejected?.length) box.append(h('div', { class: 'notice warn' }, `AI 回傳 ${a.rejected.length} 句無法在原始資料逐字找到，已排除，未採用。`));
   // 基本欄位

@@ -220,6 +220,22 @@ class T6Export(Base):
         c = self.client(); did = self.new_plan(c)
         r = c.get(f'/api/drafts/{did}/export.pdf'); self.assertEqual(r.status_code, 200); self.assertTrue(r.data.startswith(b'%PDF'))
 
+class T8Retention(Base):
+    def test_next_day_purge(self):
+        c = self.client(); did = self.new_plan(c)
+        self.upload(c, did, 's1', '虛構學生甲_觀察紀錄.txt'); self.upload(c, did, 's2', '虛構學生乙_評量紀錄.txt')
+        with self.app.app_context():
+            db = dbm.get_db()
+            fid = db.execute('SELECT id FROM files WHERE draft_id=? ORDER BY id', (did,)).fetchone()['id']
+            db.execute('UPDATE files SET created_at=? WHERE id=?', (time.time() - 86400 * 2, fid)); db.commit()
+        os.environ['CRON_SECRET'] = 'test-cron'
+        anon = self.app.test_client()
+        self.assertEqual(anon.get('/api/cron/purge').status_code, 403)
+        r = anon.get('/api/cron/purge', headers={'Authorization': 'Bearer test-cron'}).json
+        self.assertGreaterEqual(r['deleted'], 1)
+        files = c.get(f'/api/drafts/{did}').json['files']
+        self.assertEqual(len(files), 1); self.assertEqual(files[0]['studentKey'], 's2')
+
 class T7Security(Base):
     def test_password_and_admin(self):
         c = self.client()

@@ -42,3 +42,13 @@ python -m unittest discover -s tests -v
 pip install playwright && playwright install chromium
 python tests/ui_flow.py https://你的網址 帳號 密碼 /tmp/out mobile
 ```
+
+## 目前雲端部署（Vercel＋Supabase）
+
+- 網址：https://tpmr-lesson-plan.vercel.app （Vercel 專案 `tpmr-lesson-plan`，函式區域 hnd1 東京）
+- 資料庫：Supabase 專案 `bt-lesson-plan`（ap-northeast-1 東京，免費方案），資料表在 `btapp` schema，不經 Supabase 公開 API；應用程式以專用角色 `bt_app` 經連線池（transaction mode）連線。
+- 程式碼來源：GitHub `popmusictw-boop/Dv-game` 的獨立分支 `bt-lesson-plan`（不含學生資料與金鑰）。
+- 環境變數（Vercel，已設為 sensitive）：`BT_SECRET_KEY`、`BT_DATA_KEY`、`BT_DATABASE_URL`；另有 `BT_ENV=production`、`BT_SESSION_SECURE=1`、`BT_MAX_UPLOAD_MB=4`、`BT_INSTANCE_DIR=/tmp/bt`。
+- 雲端限制：單檔上傳上限 4 MB（Vercel 請求大小限制）；無 OCR（掃描檔請改用文字型 PDF／Word 或貼上文字）；PDF 改由預覽頁「列印／另存 PDF」產生。
+- 待加強：將 Supabase 根憑證（Dashboard → Database → SSL Configuration 下載）存為 `btsys/certs/supabase-ca.pem` 後重新部署，資料庫連線即會完整驗證伺服器憑證（目前為加密但未驗證憑證）。
+- 更新部署：推送到 `bt-lesson-plan` 分支後，在 Vercel 對該分支建立 Production 部署。
