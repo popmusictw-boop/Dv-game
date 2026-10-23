@@ -43,7 +43,7 @@ const uid = () => Math.random().toString(36).slice(2, 10);
 
 // ---------- 狀態 ----------
 const S = { user: null, options: null, privacy: null, draftId: null, plan: null, files: [], step: 0, rec: null, ctxItems: null, validation: [] };
-const STEPS = ['基本資料', '上傳資料', '確認先備能力', '確認課綱', '分組與目標', '生成教案', '編輯預覽', '匯出'];
+const STEPS = ['基本資料', '上傳資料', '確認課綱', '分組與目標', '教學活動', '編輯預覽', '匯出'];
 
 let saveTimer = null;
 function markDirty() {
@@ -84,7 +84,7 @@ async function showHome() {
   const r = await api('GET', '/api/drafts');
   const list = $('#draftList');
   list.replaceChildren(
-    h('div', { class: 'notice warn' }, h('strong', {}, '當日使用、隔日清除：'), '今天建立的教案與上傳的學生資料，會在今晚 24:00 後自動刪除。完成後請在「匯出」步驟下載 Word（可在自己的電腦修改）或 PDF；明天需重新建立並上傳學生資料。'),
+    h('div', { class: 'notice warn' }, '教案與學生資料今晚 24:00 後自動刪除，完成後請下載 Word。'),
     r.drafts.length ? '' : h('p', { class: 'muted' }, '尚無教案。按「新增教案」開始。'),
     ...r.drafts.map(d => h('div', { class: 'draft' },
       h('div', {}, h('strong', {}, d.title), h('div', { class: 'muted' }, '最後修改：' + new Date(d.updated_at * 1000).toLocaleString('zh-TW'))),
@@ -95,13 +95,12 @@ async function showHome() {
           await api('DELETE', `/api/drafts/${d.id}`); toast('已刪除'); showHome();
         } }, '刪除')))));
   const src = await api('GET', '/api/curriculum/sources');
-  $('#sourcesCard').replaceChildren(
-    h('h2', {}, '已載入的課綱資料'),
+  $('#sourcesCard').replaceChildren(h('details', {}, h('summary', {}, '課綱資料來源'),
     ...src.datasets.map(d => h('div', { class: 'notice' }, h('strong', {}, `${d.title}（${d.version}）`), h('div', { class: 'muted' }, `${d.items} 筆；${d.scope}`),
       d.url ? h('a', { href: d.url, target: '_blank', rel: 'noopener' }, '官方來源') : h('span', { class: 'muted' }, d.urlNote || ''))),
     h('div', { class: 'notice warn' }, h('strong', {}, '尚未載入（呈現為「待確認」）：'), src.notLoaded.join('、')),
     ...(src.imports || []).map(i => h('div', { class: 'notice' }, `教師匯入：${i.title}（${i.version}）${i.count} 筆`)),
-    h('button', { class: 'btn', onclick: importDialog }, '匯入正式課綱資料（CSV／JSON）'));
+    h('button', { class: 'btn', onclick: importDialog }, '匯入正式課綱資料（CSV／JSON）')));
   const acc = $('#accountCard') || h('div', { id: 'accountCard' });
   $('#homeView').append(acc); acc.replaceChildren(await accountCard());
 }
@@ -184,26 +183,26 @@ function stepDone(i) {
   const p = S.plan, b = p.basic;
   switch (i) {
     case 0: return !!(b.dept && b.stageText && b.domain && b.unit && b.minutes);
-    case 1: return p.students.length > 0 && p.students.every(s => s.excludeFromPlan || S.files.some(f => f.studentKey === s.key && f.segments > 0));
-    case 2: return p.students.length > 0 && p.students.every(s => s.excludeFromPlan || s.abilityConfirmed);
-    case 3: return p.curriculum.performance.length > 0 && p.curriculum.content.length > 0 && !S.validation.some(v => v.level !== 'ok');
-    case 4: return p.groups.some(g => g.studentKeys.length) && Object.values(p.goals).some(x => x.length);
-    case 5: return p.activities.length > 0 && timeTotal() === Number(b.minutes);
-    case 6: return !!p.previewed;
+    case 1: return !!p.autogen && p.students.length > 0;
+    case 2: return p.curriculum.performance.length > 0 && p.curriculum.content.length > 0 && !S.validation.some(v => v.level !== 'ok');
+    case 3: return p.groups.some(g => g.studentKeys.length) && Object.values(p.goals).some(x => x.length);
+    case 4: return p.activities.length > 0 && timeTotal() === Number(b.minutes);
+    case 5: return !!p.previewed;
     default: return false;
   }
 }
 function render() {
   $('#stepper').replaceChildren(...STEPS.map((t, i) => h('button', { type: 'button', class: (i === S.step ? 'active ' : '') + (stepDone(i) ? 'done' : ''), 'aria-current': i === S.step ? 'step' : null, onclick: () => go(i) }, `${i + 1}. ${t}`)));
   const body = $('#stepBody'); body.replaceChildren(h('div', { class: 'card' }, h('p', { class: 'muted' }, '載入中…')));
-  const fn = [stepBasic, stepUpload, stepAbilities, stepCurriculum, stepGroups, stepGenerate, stepPreview, stepExport][S.step];
+  const fn = [stepBasic, stepUpload, stepCurriculum, stepGroups, stepGenerate, stepPreview, stepExport][S.step];
   Promise.resolve(fn()).then(el => { body.replaceChildren(el); }).catch(e => body.replaceChildren(h('div', { class: 'notice err' }, e.message)));
   $('#btnPrev').disabled = S.step === 0; $('#btnNext').hidden = S.step === STEPS.length - 1;
   $('#stepper .active')?.scrollIntoView({ inline: 'center', block: 'nearest' });
 }
 async function go(i) { await saveNow(); S.step = i; window.scrollTo(0, 0); render(); }
 $('#btnPrev').onclick = () => go(Math.max(0, S.step - 1));
-$('#btnNext').onclick = () => {
+$('#btnNext').onclick = async () => {
+  if (S.step === 1 && !S.plan.autogen) return autoGenerate();
   if (!stepDone(S.step) && !confirm('此步驟尚未完成或尚有待確認項目，仍要前往下一步嗎？')) return;
   go(Math.min(STEPS.length - 1, S.step + 1));
 };
@@ -293,8 +292,7 @@ function stepBasic() {
     h('div', { class: 'grid' },
       h('label', {}, '教學總節數', bind(b, 'totalPeriods', h('input', { type: 'number', min: 1, value: b.totalPeriods || 1 }))),
       h('label', {}, '本節為第＿節', bind(b, 'periodNo', h('input', { type: 'number', min: 1, value: b.periodNo || 1 }))),
-      h('label', {}, '每節分鐘數', bind(b, 'minutes', h('input', { type: 'number', min: 10, max: 180, value: b.minutes || 45 })))),
-    h('p', { class: 'hint' }, '切換部別、科別或領域後，系統會重新檢核已勾選的課綱項目，提示不適用者。'));
+      h('label', {}, '每節分鐘數', bind(b, 'minutes', h('input', { type: 'number', min: 10, max: 180, value: b.minutes || 45 })))));
   return wrap;
 }
 
@@ -324,23 +322,39 @@ function removeInvalid(list) {
 function privacyNotice() {
   const p = S.privacy;
   return h('div', { class: 'notice' },
-    h('strong', {}, '資料處理說明（上傳前請閱讀）'),
+    h('strong', {}, `🔒 資料加密存於本系統・${p.aiEnabled ? '外部 AI 需勾選同意才送出' : '不送外部 AI'}・隔日自動刪除`),
+    h('details', {}, h('summary', { class: 'hint' }, '資料處理說明'),
     h('ul', {},
       h('li', {}, '處理位置：檔案上傳至學校自建之本系統伺服器，在伺服器上擷取文字與分析；檔案、擷取文字與教案內容皆以加密方式保存，僅上傳教師本人可存取。'),
       h('li', {}, p.aiEnabled ? `外部 AI：管理者已啟用（${p.aiModel}）。只有在您於分析時勾選同意後，才會將該生擷取文字（姓名以代號取代）送至 Anthropic API；預設不送出。` : '外部 AI：未啟用。所有分析皆在本系統伺服器以規則式比對完成，不送出任何資料。'),
       h('li', {}, 'OCR（掃描檔、照片）：' + p.ocr.message),
       h('li', {}, h('strong', {}, '系統不保存資料：教案、學生資料與上傳檔案皆於隔日（臺灣時間 00:05）自動刪除。請當天完成並下載 Word 檔，在自己的電腦上調整；下次使用需重新上傳學生資料。'), '您也可隨時自行刪除單一檔案、分析資料或整份教案。'),
       h('li', {}, '系統紀錄只記錄操作類型與編號，不記錄學生姓名或內容。建議以代號取代學生全名。')),
-    h('div', { class: 'hint' }, '支援格式：' + [...new Set(Object.values(p.supported))].join('、') + `；單檔上限 ${p.maxUploadMb} MB。不支援：.doc、HEIC 等（會提示轉檔方式）。`));
+    h('div', { class: 'hint' }, '支援格式：' + [...new Set(Object.values(p.supported))].join('、') + `；單檔上限 ${p.maxUploadMb} MB。不支援：.doc、HEIC 等（會提示轉檔方式）。`)));
 }
 function stepUpload() {
   const p = S.plan; const wrap = h('div', { class: 'card' }, h('h1', {}, '2. 上傳學生資料'), privacyNotice());
   const nameIn = h('input', { placeholder: '學生姓名或代號（建議代號，如：A1、甲）' });
   const add = () => { const v = nameIn.value.trim(); if (!v) return toast('請輸入姓名或代號'); p.students.push({ key: 's' + uid(), name: v, code: v, gender: '', disability: '' }); markDirty(); render(); };
   wrap.append(h('div', { class: 'row' }, h('div', { style: 'flex:1;min-width:200px' }, nameIn), h('button', { class: 'btn primary', onclick: add }, '＋ 新增學生')));
-  if (!p.students.length) wrap.append(h('p', { class: 'muted' }, '請先新增學生，再為每位學生上傳 IEP、學習表現紀錄、評量結果或觀察紀錄。'));
+  if (!p.students.length) wrap.append(h('p', { class: 'muted' }, '新增學生後，上傳 IEP、評量或觀察紀錄。'));
   for (const s of p.students) wrap.append(studentUploadCard(s));
+  if (p.students.length) wrap.append(h('div', { class: 'row', style: 'margin-top:.8rem' },
+    h('button', { class: 'btn primary', onclick: autoGenerate }, p.autogen ? '重新自動生成' : '自動生成教案'),
+    h('span', { class: 'hint' }, '自動產生先備能力、分組、課綱、目標與教學活動，之後可修改')));
   return wrap;
+}
+async function autoGenerate() {
+  if (S.plan.autogen && !confirm('重新自動生成會覆蓋目前的分組、課綱、學習目標與教學活動，確定嗎？')) return;
+  await saveNow();
+  toast('自動生成中…');
+  try {
+    const r = await api('POST', `/api/drafts/${S.draftId}/autogen`);
+    S.plan = r.plan; S.rec = null; S.ctxItems = null; await revalidate(false);
+    if (r.notes.length) modal(h('div', {}, h('h2', {}, '自動生成完成，請留意'), ...r.notes.map(x => h('p', { class: 'notice warn' }, x)), h('button', { class: 'btn primary', onclick: closeModal }, '知道了')));
+    else toast('已自動生成，請確認課綱');
+    S.step = 2; window.scrollTo(0, 0); render();
+  } catch (e) { toast(e.message); }
 }
 function studentUploadCard(s) {
   const files = S.files.filter(f => f.studentKey === s.key);
@@ -380,9 +394,9 @@ function studentUploadCard(s) {
           delete S.plan.analyses[s.key]; for (const g of S.plan.groups) g.studentKeys = g.studentKeys.filter(k => k !== s.key);
           markDirty(); render();
         } }, '移除學生'))),
-    h('div', { class: 'grid' }, h('label', {}, '教案顯示姓名（可用代號）', nameIn), h('label', {}, '上傳檔案（可多選；手機可拍照）', fileIn)),
+    h('div', { class: 'grid' }, h('label', {}, '教案顯示姓名', nameIn), h('label', {}, '上傳檔案（可多選、可拍照）', fileIn)),
     status,
-    h('div', {}, paste, h('button', { class: 'btn small', onclick: doPaste }, '加入貼上文字')),
+    h('details', {}, h('summary', { class: 'hint' }, '或貼上文字'), paste, h('button', { class: 'btn small', onclick: doPaste }, '加入')),
     files.length ? h('div', {}, ...files.map(f => h('div', { class: 'file-item' },
       h('div', {}, h('strong', {}, f.filename), ' ', badge(f.status === '已擷取' ? '已擷取' : f.status, f.status === '已擷取' ? 'b-fact' : 'b-missing'),
         h('div', { class: 'hint' }, `${f.method || ''}${f.pages ? `，${f.pages} 頁` : ''}，擷取 ${f.segments} 段`),
@@ -490,36 +504,41 @@ function abilityItem(s, it) {
 const TYPES = [['core', '核心素養'], ['performance', '學習表現'], ['content', '學習內容']];
 async function stepCurriculum() {
   const p = S.plan, b = p.basic;
-  const wrap = h('div', { class: 'card' }, h('h1', {}, '4. 確認課綱'));
-  const kw = bind(b, 'keywords', h('input', { value: b.keywords || '', placeholder: '補充關鍵詞（例：坐姿、規範、指令）' }));
+  const wrap = h('div', { class: 'card' }, h('h1', {}, '3. 確認課綱'));
+  const kw = bind(b, 'keywords', h('input', { value: b.keywords || '', placeholder: '補充關鍵詞（選填）' }));
   const abil = p.students.filter(s => !s.excludeFromPlan).map(s => s.abilitySummary || '').filter(Boolean);
   const load = async (rerender = true) => { S.rec = await api('POST', '/api/curriculum/recommend', { context: ctx(), unit: `${b.unit || ''} ${b.keywords || ''}`, abilities: abil, limit: 12 }); S.ctxItems = null; if (rerender) render(); };
   if (!S.rec) await load(false).catch(e => toast(e.message));
   await revalidate(false);
   const rec = S.rec || { status: '待確認', reason: '' };
-  wrap.append(h('div', { class: 'notice ' + (rec.status === '待確認' ? 'warn' : '') }, badge(rec.status), rec.status === '已載入'
-      ? '推薦依「部別＋年級／學習階段＋領域／科目＋單元名稱＋學生能力」計算共同詞（系統推估），請逐項勾選；可展開該科目全部項目或搜尋其他科目。'
-      : rec.reason),
-    h('div', { class: 'row' }, h('div', { style: 'flex:1;min-width:220px' }, kw), h('button', { class: 'btn', onclick: load }, '重新推薦'),
-      h('button', { class: 'btn', onclick: importDialog }, '匯入課綱資料')));
+  const regen = async () => {
+    await saveNow();
+    try {
+      const g = await api('POST', `/api/drafts/${S.draftId}/goals/suggest`); p.goals = g.goals; p.goalNote = g.note;
+      markDirty(); await saveNow();
+      const a = await api('POST', `/api/drafts/${S.draftId}/activities/suggest`); p.activities = a.activities; markDirty();
+      toast('已重新產生學習目標與教學活動');
+    } catch (e) { toast(e.message); }
+  };
+  wrap.append(h('div', { class: 'row space' },
+    h('span', { class: 'hint' }, rec.status === '待確認' ? '此科目尚無官方課綱資料，教案將顯示「待確認」' : '已依單元內容自動選取（官方原文），可移除或加入'),
+    p.autogen ? h('button', { class: 'btn small', onclick: regen }, '依課綱重新產生目標與活動') : null));
+  for (const [k, label] of TYPES) {
+    wrap.append(h('h2', {}, `${label}（${p.curriculum[k].length}）`));
+    if (!p.curriculum[k].length) wrap.append(h('p', { class: 'muted' }, '未選擇（顯示「待確認」）'));
+    for (const x of p.curriculum[k]) wrap.append(selItem(k, x));
+  }
+  const more = h('details', {}, h('summary', {}, '＋ 加入其他項目'),
+    h('div', { class: 'row' }, h('div', { style: 'flex:1;min-width:200px' }, kw), h('button', { class: 'btn small', onclick: load }, '重新推薦'), h('button', { class: 'btn small', onclick: importDialog }, '匯入課綱')));
   if (rec.status !== '待確認') {
     const cols = h('div', { class: 'cols3' });
     for (const [k, label] of TYPES) cols.append(curColumn(k, label, rec[k] || []));
-    wrap.append(cols);
-  } else {
-    wrap.append(h('p', {}, '目前教案的核心素養、學習表現、學習內容將顯示「待確認」。您可匯入官方資料，或用下方搜尋加入其他已載入課綱（將標示跨領域）。'));
+    more.append(cols);
   }
-  wrap.append(searchBox());
-  // 已選項目
-  wrap.append(h('h2', {}, '已選項目（官方原文不可改；教師調整敘述另存並可追溯）'));
-  for (const [k, label] of TYPES) {
-    wrap.append(h('h3', {}, `${label}（${p.curriculum[k].length}）`));
-    if (!p.curriculum[k].length) wrap.append(h('p', { class: 'muted' }, '尚未選擇（教案將顯示「待確認」）'));
-    for (const x of p.curriculum[k]) wrap.append(selItem(k, x));
-  }
-  wrap.append(h('h2', {}, '議題融入'),
-    h('p', { class: 'hint' }, '系統尚未載入議題學習主題與實質內涵代碼，請依《議題融入說明手冊》原文填寫（例：品德教育／品U1 …），系統不自動產生代碼。'),
-    bind(p, 'issuesText', h('textarea', { value: p.issuesText || '' })));
+  more.append(searchBox());
+  wrap.append(more,
+    h('h2', {}, '議題融入'),
+    bind(p, 'issuesText', h('textarea', { value: p.issuesText || '', placeholder: '依《議題融入說明手冊》填寫，例：品德教育／品U1（選填）' })));
   return wrap;
 }
 function isSel(k, id) { return S.plan.curriculum[k].some(x => x.itemId === id); }
@@ -532,14 +551,12 @@ function toggleSel(k, it, on) {
 function curRow(k, it) {
   const c = h('input', { type: 'checkbox', checked: isSel(k, it.id), 'aria-label': it.code }); c.onchange = () => toggleSel(k, it, c.checked);
   return h('div', { class: 'cur-item' }, c, h('div', {},
-    h('span', { class: 'code' }, it.code), ' ', it.text,
-    h('small', {}, [it.dimension, it.stageLabel].filter(Boolean).join('｜')),
-    it.reason ? h('small', {}, badge('系統推估'), it.reason) : null));
+    h('span', { class: 'code' }, it.code), ' ', it.text));
 }
 function curColumn(k, label, items) {
-  const col = h('div', {}, h('h2', {}, label), h('div', { class: 'hint' }, `推薦 ${items.length} 項／本科目共 ${S.rec.totals?.[label] ?? '?'} 項`));
+  const col = h('div', {}, h('h3', {}, label));
   for (const it of items) col.append(curRow(k, it));
-  col.append(h('button', { class: 'btn small', onclick: () => showAll(k, label) }, `展開本科目全部${label}`));
+  col.append(h('button', { class: 'btn small', onclick: () => showAll(k, label) }, `全部${label}（${S.rec.totals?.[label] ?? ''}）`));
   return col;
 }
 async function showAll(k, label) {
@@ -568,17 +585,20 @@ function selItem(k, x) {
   conf.onchange = () => { x.teacherConfirmed = conf.checked; markDirty(); revalidate(false).then(render); };
   const src = x.source || {};
   return h('div', { class: 'sel-item ' + (lvl === 'error' ? 'err' : lvl === 'warn' ? 'warn' : '') },
-    h('div', { class: 'row space' }, h('strong', {}, x.code), h('button', { class: 'btn small danger', onclick: () => toggleSel(k, { id: x.itemId }, false) }, '移除')),
-    h('div', { class: 'official' }, badge('官方原文'), x.officialText),
-    h('div', { class: 'hint' }, `來源：${src.title || ''}（${src.version || ''}）${src.pdfPage ? ` PDF第${src.pdfPage}頁` : ''}${src.url ? '' : '；' + (src.urlNote || src.note || '')}`, src.url ? h('a', { href: src.url, target: '_blank', rel: 'noopener' }, ' 官方連結') : null),
+    h('div', { class: 'row space', style: 'flex-wrap:nowrap;align-items:flex-start' },
+      h('div', {}, h('strong', { class: 'code' }, x.code), ' ', x.teacherText || x.officialText),
+      h('button', { class: 'btn small danger', onclick: () => toggleSel(k, { id: x.itemId }, false) }, '移除')),
     v && v.messages.length ? h('div', {}, ...v.messages.map(m => h('div', { class: 'hint' }, '⚠ ' + m))) : null,
-    lvl === 'warn' || x.teacherConfirmed ? h('label', { class: 'inline' }, conf, '我已確認此項目適用本教案') : null,
-    h('label', {}, '教師調整敘述（選填；教案將以此呈現並保留代碼對應官方原文）', bind(x, 'teacherText', h('textarea', { value: x.teacherText || '', rows: 2 }))));
+    lvl === 'warn' || x.teacherConfirmed ? h('label', { class: 'inline' }, conf, '確認適用') : null,
+    h('details', {}, h('summary', { class: 'hint' }, '來源／調整敘述'),
+      h('div', { class: 'hint' }, `官方原文：${x.officialText}`),
+      h('div', { class: 'hint' }, `${src.title || ''}（${src.version || ''}）${src.pdfPage ? ` 第${src.pdfPage}頁` : ''}`, src.url ? h('a', { href: src.url, target: '_blank', rel: 'noopener' }, ' 官方連結') : null),
+      h('label', {}, '教師調整敘述（代碼仍對應官方原文）', bind(x, 'teacherText', h('textarea', { value: x.teacherText || '', rows: 2 })))));
 }
 
 // ---------- 5. 分組與目標 ----------
 function stepGroups() {
-  const p = S.plan; const wrap = h('div', { class: 'card' }, h('h1', {}, '5. 能力分組與學習目標'));
+  const p = S.plan; const wrap = h('div', { class: 'card' }, h('h1', {}, '4. 能力分組與學習目標'));
   const active = p.students.filter(s => !s.excludeFromPlan);
   if (!p.groups.length) p.groups = ['A', 'B', 'C'].map(k => ({ key: k, name: k + '組', studentKeys: [] }));
   const nSel = h('select', {}, ...[1, 2, 3, 4].map(n => h('option', { value: n, selected: p.groups.length === n }, n + ' 組')));
@@ -593,30 +613,30 @@ function stepGroups() {
     p.groups = r.groups.map((g, i) => ({ ...g, name: p.groups[i]?.name || g.name })); p.groupRationale = r;
     markDirty(); render();
   };
-  wrap.append(h('p', { class: 'muted' }, '依本單元相關先備能力的支持需求建議分組；不依障礙類別或年級決定。組數、組名與歸組皆可調整。'),
-    h('div', { class: 'row' }, h('label', {}, '組數', nSel), h('button', { class: 'btn', onclick: suggest }, '依佐證建議分組')));
-  if (p.groupRationale) wrap.append(h('div', { class: 'notice' }, badge('系統推估'), p.groupRationale.note,
+  wrap.append(h('div', { class: 'row' }, h('label', { class: 'inline', style: 'white-space:nowrap' }, '組數', nSel), h('button', { class: 'btn small', onclick: suggest }, '重新分組')));
+  if (p.groupRationale) wrap.append(h('details', {}, h('summary', { class: 'hint' }, '分組依據（依資料中的支持需求，不依障礙類別）'),
     ...p.groupRationale.groups.flatMap(g => g.rationale.map(r => h('div', { class: 'hint' }, `${nameOf(r.studentKey)} → ${g.name}：支持需求指數 ${r.score}；${r.reasons.join('；') || '依佐證推估'}`))),
     ...(p.groupRationale.unassigned || []).map(u => h('div', { class: 'hint' }, `${nameOf(u.studentKey)}：${u.note}`))));
   const grid = h('div', { class: 'grid' });
   for (const g of p.groups) grid.append(h('label', {}, `組名（${g.key}）`, bind(g, 'name', h('input', { value: g.name }))));
-  wrap.append(grid, h('h2', {}, '學生歸組'));
+  wrap.append(h('details', {}, h('summary', { class: 'hint' }, '修改組名'), grid), h('h2', {}, '學生歸組'));
   for (const s of active) {
     const sel = h('select', {}, h('option', { value: '' }, '未分組'), ...p.groups.map(g => h('option', { value: g.key, selected: g.studentKeys.includes(s.key) }, g.name)));
     sel.onchange = () => { for (const g of p.groups) g.studentKeys = g.studentKeys.filter(k => k !== s.key); const g = p.groups.find(g => g.key === sel.value); if (g) g.studentKeys.push(s.key); markDirty(); };
-    wrap.append(h('div', { class: 'row' }, h('span', { style: 'min-width:7rem' }, s.code || s.name), sel));
+    wrap.append(h('div', { class: 'row', style: 'flex-wrap:nowrap' }, h('span', { style: 'min-width:4rem' }, s.code || s.name), h('div', { style: 'flex:1' }, sel)));
   }
   const genGoals = async () => {
     await saveNow();
     try { const r = await api('POST', `/api/drafts/${S.draftId}/goals/suggest`); p.goals = r.goals; p.goalNote = r.note; markDirty(); render(); }
     catch (e) { toast(e.message); }
   };
-  wrap.append(h('h2', {}, '各組學習目標'), h('div', { class: 'row' }, h('button', { class: 'btn primary', onclick: genGoals }, Object.keys(p.goals).length ? '重新產生目標建議（會覆蓋）' : '產生目標建議')));
-  if (p.goalNote) wrap.append(h('div', { class: 'notice' }, badge('系統推估'), p.goalNote));
+  wrap.append(h('div', { class: 'row space' }, h('h2', {}, '各組學習目標'), h('button', { class: 'btn small', onclick: genGoals }, Object.keys(p.goals).length ? '重新產生目標' : '產生目標')));
+  if (p.goalNote) wrap.append(h('div', { class: 'hint' }, '達成標準為建議值，可點「修改」調整。'));
   for (const g of p.groups) {
     const list = p.goals[g.key] ||= [];
     const missing = ['認知', '情意', '技能'].filter(d => !list.some(x => x.domain === d));
-    wrap.append(h('h3', {}, g.name), missing.length && list.length ? h('div', { class: 'hint' }, `此組尚無：${missing.join('、')}目標（若與本單元無關可不設）`) : null,
+    if (!g.studentKeys.length && !list.length) continue;
+    wrap.append(h('h3', {}, g.name), ...(missing.length && list.length ? [h('div', { class: 'hint' }, `尚無：${missing.join('、')}目標`)] : []),
       ...list.map(go => goalEditor(g, go)),
       h('button', { class: 'btn small', onclick: () => { list.push(newGoal(g)); markDirty(); render(); } }, '＋ 新增目標'));
   }
@@ -637,6 +657,8 @@ function goalEditor(g, go) {
   }));
   const dSel = h('select', {}, ...['認知', '情意', '技能'].map(d => h('option', { selected: go.domain === d }, d)));
   return h('div', { class: 'goal' },
+    h('div', {}, h('span', { class: 'chip' }, go.domain), ' ', comp),
+    h('details', {}, h('summary', { class: 'hint' }, '修改'),
     h('div', { class: 'row space' }, h('label', { class: 'inline' }, '類別', bind(go, 'domain', dSel)),
       h('button', { class: 'btn small danger', onclick: () => { S.plan.goals[g.key] = S.plan.goals[g.key].filter(x => x !== go); markDirty(); render(); } }, '刪除')),
     h('div', { class: 'grid' },
@@ -644,7 +666,7 @@ function goalEditor(g, go) {
       h('label', {}, '協助程度', bind(go, 'support', h('input', { value: go.support }), upd)),
       h('label', {}, '可觀察行為', bind(go, 'behavior', h('input', { value: go.behavior }), upd)),
       h('label', {}, ['達成標準 ', go.criterionSuggested ? badge('建議值') : badge('教師確認')], bind(go, 'criterion', h('input', { value: go.criterion }), upd))),
-    h('label', { class: 'inline' }, bind(go, 'criterionSuggested', h('input', { type: 'checkbox', checked: go.criterionSuggested }), () => { upd(); render(); }), '達成標準為建議值（尚待教師依學生資料確認）'),
+    h('label', { class: 'inline' }, bind(go, 'criterionSuggested', h('input', { type: 'checkbox', checked: go.criterionSuggested }), () => { upd(); render(); }), '達成標準為建議值'),
     h('div', {}, h('strong', {}, '回應方式：'), h('div', { class: 'chips' }, ...modes.map(m => {
       const c = h('input', { type: 'checkbox', checked: (go.responseModes || []).includes(m) });
       c.onchange = () => { go.responseModes = c.checked ? [...(go.responseModes || []), m] : go.responseModes.filter(x => x !== m); markDirty(); };
@@ -652,22 +674,19 @@ function goalEditor(g, go) {
     }))),
     h('div', {}, h('strong', {}, '對應學習表現：'), codeChecks(cur.performance, 'performanceCodes')),
     h('div', {}, h('strong', {}, '對應學習內容：'), codeChecks(cur.content, 'contentCodes')),
-    h('label', {}, '評量方式', bind(go, 'assessment', h('input', { value: go.assessment || '' }))),
-    h('div', { class: 'hint' }, '教案呈現：'), comp);
+    h('label', {}, '評量方式', bind(go, 'assessment', h('input', { value: go.assessment || '' })))));
 }
 
 // ---------- 6. 生成教案 ----------
 const timeTotal = () => S.plan.activities.reduce((a, x) => a + (Number(x.minutes) || 0), 0);
 function stepGenerate() {
-  const p = S.plan; const wrap = h('div', { class: 'card' }, h('h1', {}, '6. 生成教案（教學流程）'));
-  const unconfirmed = p.students.filter(s => !s.excludeFromPlan && !s.abilityConfirmed);
-  if (unconfirmed.length) wrap.append(h('div', { class: 'notice warn' }, `尚有學生先備能力未確認：${unconfirmed.map(s => s.code || s.name).join('、')}。請先於步驟3逐項確認。`));
+  const p = S.plan; const wrap = h('div', { class: 'card' }, h('h1', {}, '5. 教學活動（教學流程）'));
   const gen = async () => {
     await saveNow();
     const r = await api('POST', `/api/drafts/${S.draftId}/activities/suggest`); p.activities = r.activities; markDirty(); render();
   };
   const tb = h('span', { class: 'timebar ' + (timeTotal() === Number(p.basic.minutes) ? 'ok' : 'bad') }, `時間合計 ${timeTotal()}／${p.basic.minutes} 分`);
-  wrap.append(h('div', { class: 'row space' }, h('button', { class: 'btn primary', onclick: gen, disabled: unconfirmed.length > 0 }, p.activities.length ? '重新產生教學活動（會覆蓋）' : '產生教學活動'), tb));
+  wrap.append(h('div', { class: 'row space' }, h('button', { class: 'btn primary', onclick: gen }, p.activities.length ? '重新產生教學活動（會覆蓋）' : '產生教學活動'), tb));
   const groups = p.groups.filter(g => g.studentKeys.length);
   const updTime = () => { tb.textContent = `時間合計 ${timeTotal()}／${p.basic.minutes} 分`; tb.className = 'timebar ' + (timeTotal() === Number(p.basic.minutes) ? 'ok' : 'bad'); };
   for (const a of p.activities) {
@@ -676,8 +695,9 @@ function stepGenerate() {
       h('div', { class: 'grid' }, h('label', {}, '活動階段', bind(a, 'phase', h('input', { value: a.phase }))), h('label', {}, '時間（分）', bind(a, 'minutes', h('input', { type: 'number', min: 0, value: a.minutes }), updTime))),
       h('label', {}, '教學活動內容', bind(a, 'content', h('textarea', { value: a.content, rows: 5 }))),
       h('label', {}, '教學資源', bind(a, 'resources', h('input', { value: a.resources || '' }))),
-      h('div', { class: 'grid' }, ...groups.map(g => h('label', {}, `${g.name}支持`, bind(a.groupSupport, g.key, h('input', { value: a.groupSupport[g.key] || '' }))))),
-      h('div', { class: 'grid' }, ...groups.map(g => h('label', {}, `${g.name}評量`, bind(a.assessment, g.key, h('input', { value: a.assessment[g.key] || '' }))))),
+      h('details', {}, h('summary', { class: 'hint' }, '各組支持與評量'),
+        h('div', { class: 'grid' }, ...groups.map(g => h('label', {}, `${g.name}支持`, bind(a.groupSupport, g.key, h('input', { value: a.groupSupport[g.key] || '' }))))),
+        h('div', { class: 'grid' }, ...groups.map(g => h('label', {}, `${g.name}評量`, bind(a.assessment, g.key, h('input', { value: a.assessment[g.key] || '' })))))),
       h('button', { class: 'btn small danger', onclick: () => { p.activities = p.activities.filter(x => x !== a); markDirty(); render(); } }, '刪除此段')));
   }
   if (p.activities.length) wrap.append(h('button', { class: 'btn small', onclick: () => { p.activities.push({ id: uid(), phase: '', content: '', resources: '', minutes: 0, groupSupport: {}, assessment: {} }); markDirty(); render(); } }, '＋ 新增活動段落'));
@@ -727,8 +747,8 @@ function stepPreview() {
       h('div', { class: 'hint' }, '【各組支持】' + Object.entries(a.groupSupport || {}).map(([k, v]) => `${k}組：${v}`).join('；')));
     t3.append(tr(content, ed(a, 'resources'), ed(a, 'minutes', 'c', { number: true }), h('td', {}, Object.entries(a.assessment || {}).map(([k, v]) => `${k}：${v}`).join('\n'))));
   }
-  return h('div', { class: 'card' }, h('h1', { class: 'no-print' }, '7. 編輯預覽'),
-    h('p', { class: 'hint no-print' }, '淡黃色欄位可直接修改；課綱與目標欄需回原步驟修改以保留官方原文追溯。預覽與 Word 使用相同表格結構；Word 的版面以匯出檔為準。'),
+  return h('div', { class: 'card' }, h('h1', { class: 'no-print' }, '6. 編輯預覽'),
+    h('p', { class: 'hint no-print' }, '淡黃色欄位可直接修改。'),
     h('div', { class: 'preview' }, h('div', { class: 'pv-head' }, h('div', { class: 'big' }, '臺北市立臺北特殊教育學校'), h('div', {}, depts), h('div', { class: 'big' }, '教學設計表')), t2, h('div', { style: 'height:.6rem' }), t3),
     h('div', { class: 'row no-print', style: 'margin-top:.6rem' }, h('button', { class: 'btn', onclick: () => window.print() }, '列印／另存 PDF（瀏覽器）')));
 }
@@ -744,16 +764,16 @@ async function stepExport() {
     const resp = await fetch(`/api/drafts/${S.draftId}/export.${ext}`, { credentials: 'same-origin' });
     if (!resp.ok) {
       const e = await resp.json().catch(() => ({}));
-      if (resp.status === 503 && ext === 'pdf') { toast('此伺服器不提供 PDF 轉檔，已開啟預覽，請按「列印／另存 PDF」'); return go(6); }
+      if (resp.status === 503 && ext === 'pdf') { toast('此伺服器不提供 PDF 轉檔，已開啟預覽，請按「列印／另存 PDF」'); return go(5); }
       return toast(e.error || '匯出失敗');
     }
     const blob = await resp.blob(); const a = h('a', { href: URL.createObjectURL(blob), download: `北特教學設計表_${S.plan.basic.unit || '教案'}.${ext}` });
     document.body.append(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
   };
-  return h('div', { class: 'card' }, h('h1', {}, '8. 匯出'),
-    r.issues.length ? h('div', { class: 'notice warn' }, h('strong', {}, '匯出前提醒：'), h('ul', {}, ...r.issues.map(i => h('li', {}, i))), h('label', { class: 'inline' }, ack, '我已了解，仍要匯出')) : h('div', { class: 'notice' }, '檢核通過：學生先備能力已確認、教學時間合計符合課時。'),
+  return h('div', { class: 'card' }, h('h1', {}, '7. 匯出'),
+    r.issues.length ? h('div', { class: 'notice warn' }, h('strong', {}, '匯出前提醒：'), h('ul', {}, ...r.issues.map(i => h('li', {}, i))), h('label', { class: 'inline' }, ack, '我已了解，仍要匯出')) : h('div', { class: 'notice' }, '檢核通過：教學時間合計符合課時。'),
     h('div', { class: 'row' }, h('button', { class: 'btn primary', onclick: dl('docx') }, '下載 Word（可編輯）'), h('button', { class: 'btn', onclick: dl('pdf') }, '下載 PDF'),
-      h('button', { class: 'btn', onclick: () => go(6) }, '回預覽列印')),
+      h('button', { class: 'btn', onclick: () => go(5) }, '回預覽列印')),
     h('div', { class: 'notice warn' }, '本教案與學生資料將於今晚 24:00 後自動刪除，請務必現在下載。下載的 Word 檔可在自己的電腦上繼續修改。'),
     h('p', { class: 'hint' }, 'Word 依北特「教學設計表」原始版型產生。匯出檔含學生資料，請存放於個人電腦並妥善保管。'));
 }

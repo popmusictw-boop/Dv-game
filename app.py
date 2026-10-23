@@ -429,15 +429,78 @@ def create_app(test_config=None):
         _, plan = load_draft(did)
         return jsonify(planner.suggest_activities(ctx_of(plan), plan.get('groups', []), plan.get('goals', {}), plan.get('curriculum', {}).get('content', [])))
 
+    # ---------- 一鍵自動生成：先備能力（以上傳資料為準）→ 分組 → 課綱（依教案內容自動抓取）→ 目標 → 教學活動 ----------
+    AUTO_PICK = {'核心素養': ('core', 2), '學習表現': ('performance', 3), '學習內容': ('content', 3)}
+
+    def _summary_from(a):
+        parts = [(x.get('teacherText') or x['quote']).strip().rstrip('。；') for x in a.get('abilities', []) if not x.get('excluded')]
+        return '。'.join(parts) + ('。' if parts else '')
+
+    @app.post('/api/drafts/<int:did>/autogen')
+    @login_required
+    def autogen(did):
+        _, plan = load_draft(did)
+        b = plan.get('basic', {}); ctx = ctx_of(plan)
+        students = [s for s in plan.get('students', []) if not s.get('excludeFromPlan')]
+        if not students: return jsonify(error='請先新增學生並上傳資料'), 400
+        notes = []
+        # 1. 先備能力：直接採用上傳資料擷取的原句（不另行確認）
+        unit_text = ' '.join([b.get('unit', ''), b.get('subjectLabel', ''), b.get('keywords', '')])
+        for st in students:
+            rows = dbm.get_db().execute('SELECT * FROM files WHERE draft_id=? AND owner_id=? AND student_key=?', (did, g.user['id'], st['key'])).fetchall()
+            files = [dict(fileId=r['id'], filename=crypto.dec_text(r['filename_enc']), extraction=crypto.dec_json(r['extract_enc'])) for r in rows]
+            files = [f for f in files if f['extraction'].get('segments')]
+            if not files:
+                notes.append(f'{st.get("code") or st.get("name")}：沒有可擷取的文字資料，先備能力欄留白。')
+                st.update(abilitySummary='', abilityConfirmed=True); plan.setdefault('analyses', {}).pop(st['key'], None); continue
+            a = analyze.analyze_student(st['key'], files, unit_text)
+            a.update(rejected=[], generatedAt=time.time(), autoAccepted=True)
+            for x in a['abilities']: x['confirmed'] = True
+            plan.setdefault('analyses', {})[st['key']] = a
+            if a['basic']['gender']['status'] == '原文事實' and not st.get('gender'): st['gender'] = a['basic']['gender']['value']
+            if a['basic']['disability']['status'] == '原文事實' and not st.get('disability'): st['disability'] = a['basic']['disability']['value']
+            st.update(abilitySummary=_summary_from(a), abilityConfirmed=True, summaryEdited=False)
+        analyses = plan.get('analyses', {})
+        # 2. 分組（依佐證中的支持需求；佐證不足者併入 A 組並提示）
+        names = [x['name'] for x in plan.get('groups', [])] or None
+        gr = planner.suggest_groups(students, analyses, names)
+        groups = [dict(key=x['key'], name=x['name'], studentKeys=x['studentKeys']) for x in gr['groups']]
+        for u in gr['unassigned']:
+            groups[0]['studentKeys'].append(u['studentKey'])
+            st = next(s for s in students if s['key'] == u['studentKey'])
+            notes.append(f'{st.get("code") or st.get("name")}：佐證不足以推估支持程度，暫列{groups[0]["name"]}，請視需要調整。')
+        plan['groups'] = groups; plan['groupRationale'] = gr
+        # 3. 依教案內容（單元名稱、本校教學大綱細項）自動抓取課綱；教學流程中的通用句型不納入計分，避免干擾
+        gen_text = ' '.join([b.get('unit', ''), b.get('keywords', '')])
+        rec = store.recommend(ctx, gen_text, [], 12)  # 以教案單元內容為準，學生資料原句不納入計分以免偏題
+        cur = dict(core=[], performance=[], content=[])
+        if rec.get('status') != '待確認':
+            for label, (k, n) in AUTO_PICK.items():
+                pool = rec.get(k, [])
+                for it in ([x for x in pool if x.get('defaultStage')] + [x for x in pool if not x.get('defaultStage') and k != 'core'])[:n]:
+                    cur[k].append(dict(itemId=it['id'], code=it['code'], type=it['type'], subject=it['subject'], officialText=it['text'],
+                                       teacherText='', source=it.get('source'), stageLabel=it.get('stageLabel'), autoPicked=True))
+            bad = {r['itemId'] for r in store.validate(ctx, cur['core'] + cur['performance'] + cur['content']) if r['level'] == 'error'}
+            for k in cur: cur[k] = [x for x in cur[k] if x['itemId'] not in bad]
+        else:
+            notes.append('此領域／科目尚未載入可信課綱資料，核心素養、學習表現、學習內容標示「待確認」。')
+        plan['curriculum'] = dict(plan.get('curriculum', {}), **cur)
+        # 4. 學習目標（認知／情意／技能）與 5. 教學活動
+        gl = planner.suggest_goals(ctx, groups, analyses, cur['performance'], cur['content'], curriculum_pending=not (cur['performance'] and cur['content']))
+        plan['goals'] = gl.get('goals', {}); plan['goalNote'] = gl.get('note', '')
+        plan['activities'] = planner.suggest_activities(ctx, groups, plan['goals'], cur['content'])['activities']
+        plan['autogen'] = dict(at=time.time(), notes=notes)
+        save_plan(did, plan); dbm.audit(g.user['id'], 'autogen', did)
+        return jsonify(plan=plan, notes=notes)
+
     # ---------- 匯出 ----------
     def _check_ready(plan):
         issues = []
         acts = plan.get('activities', [])
         tc = planner.check_time(acts, plan.get('basic', {}).get('minutes'))
         if not tc['ok']: issues.append(f'教學時間合計 {tc["total"]} 分，與每節 {tc["minutes"]} 分不符')
-        for s in plan.get('students', []):
-            if not s.get('excludeFromPlan') and not s.get('abilityConfirmed'):
-                issues.append(f'學生「{s.get("code") or s.get("name")}」的先備能力尚未經教師確認')
+        if not plan.get('autogen'):
+            issues.append('尚未執行「自動生成教案」（先備能力、分組、課綱、目標由上傳資料自動產生）')
         return issues
 
     @app.get('/api/drafts/<int:did>/check')

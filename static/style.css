@@ -108,4 +108,7 @@ table.pv td.c{text-align:center;vertical-align:middle}
   [contenteditable=true]{background:transparent}
   @page{size:A4 portrait;margin:15mm}
 }
+
+details{margin:.35rem 0} details>summary{cursor:pointer;padding:.3rem 0;color:var(--primary);font-weight:600;list-style-position:inside} details>summary.hint{font-weight:400}
+.sel-item .code{color:var(--primary)} .sel-item .btn{white-space:nowrap;flex:0 0 auto} .goal .composed{display:inline;background:none;padding:0;margin:0}
 [hidden]{display:none!important}

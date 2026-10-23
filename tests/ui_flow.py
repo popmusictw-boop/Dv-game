@@ -51,32 +51,14 @@ with sync_playwright() as p:
         card.locator('input[type=file]').set_input_files(os.path.join(FIX, fn))
         page.wait_for_selector(f'text={fn}'); page.wait_for_timeout(1000)  # 等上傳後畫面更新完成
     shot(page, '2_upload')
-    page.click('#btnNext')
-    # 3 先備能力
-    page.wait_for_selector('text=確認先備能力')
-    for i in range(3):
-        btn = page.locator('.student button:text-is("擷取分析")').first
-        btn.click(); page.wait_for_timeout(800)
-    assert page.locator('.student button:text-is("擷取分析")').count() == 0, '仍有學生未分析'
-    page.wait_for_selector('.ability')
-    # 逐項確認
-    while True:
-        boxes = page.locator('.ability label.inline:has-text("已確認") input:not(:checked)')
-        if boxes.count() == 0: break
-        boxes.first.click(); page.wait_for_timeout(250)
-    while page.locator('label.inline:has-text("我已逐項檢視") input:not(:checked)').count():
-        page.locator('label.inline:has-text("我已逐項檢視") input:not(:checked)').first.click(); page.wait_for_timeout(400)
-    shot(page, '3_abilities')
-    page.click('#btnNext')
-    # 4 課綱
-    page.wait_for_selector('.cols3')
-    cols = page.locator('.cols3 > div')
-    for ci, n in ((0, 1), (1, 2), (2, 2)):
-        for k in range(n):
-            cols.nth(ci).locator('.cur-item input[type=checkbox]').nth(k).click(); page.wait_for_timeout(700)
+    page.click('button:has-text("自動生成教案")')
+    # 3 課綱（自動選取）
+    page.wait_for_selector('text=已依單元內容自動選取')
+    if page.locator('dialog[open]').count(): page.click('dialog >> text=知道了')
+    page.wait_for_selector('.sel-item')
+    n_sel = page.locator('.sel-item').count(); assert n_sel >= 3, f'自動選取課綱過少：{n_sel}'
     page.fill('textarea >> nth=-1', '品德教育（議題學習主題代碼待教師依手冊填寫）')
-    shot(page, '4_curriculum')
-    assert page.locator('.sel-item').count() == 5
+    shot(page, '3_curriculum')
     # 跨領域檢核：回第1步改領域，應出現檢核視窗
     page.click('.stepper button >> nth=0'); page.wait_for_selector('select[aria-label="領域／科目"]')
     page.select_option('select[aria-label="領域／科目"]', 'sn:生活管理')
@@ -86,18 +68,17 @@ with sync_playwright() as p:
     page.select_option('select[aria-label="領域／科目"]', 'sn:社會技巧')
     page.wait_for_timeout(800)
     if page.locator('dialog[open]').count(): page.click('text=稍後在課綱步驟處理')
-    page.click('.stepper button >> nth=4')
-    # 5 分組與目標
-    page.wait_for_selector('text=依佐證建議分組'); page.click('text=依佐證建議分組'); page.wait_for_timeout(600)
-    page.click('text=產生目標建議'); page.wait_for_selector('.goal .composed')
-    shot(page, '5_groups_goals')
+    page.click('.stepper button >> nth=3')
+    # 4 分組與目標（已自動生成）
+    page.wait_for_selector('.goal .composed')
+    shot(page, '4_groups_goals')
     page.click('#btnNext')
-    # 6 生成
-    page.wait_for_selector('text=產生教學活動'); page.click('text=產生教學活動'); page.wait_for_selector('.timebar.ok')
-    shot(page, '6_generate')
+    # 5 教學活動（已自動生成）
+    page.wait_for_selector('.timebar.ok')
+    shot(page, '5_activities')
     page.click('#btnNext')
     # 7 預覽
-    page.wait_for_selector('table.pv'); shot(page, '7_preview')
+    page.wait_for_selector('table.pv'); shot(page, '6_preview')
     page.click('#btnNext')
     # 8 匯出
     page.wait_for_selector('button:has-text("下載 Word")')
@@ -105,7 +86,7 @@ with sync_playwright() as p:
     d.value.save_as(os.path.join(OUT, f'{MODE}_export.docx'))
     with page.expect_download(timeout=120000) as d: page.click('button:has-text("下載 PDF")')
     d.value.save_as(os.path.join(OUT, f'{MODE}_export.pdf'))
-    shot(page, '8_export')
+    shot(page, '7_export')
     b.close()
 print('UI flow OK', MODE)
 print('console errors:', errors)

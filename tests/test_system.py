@@ -95,6 +95,39 @@ class T2MultiStudent(Base):
         self.assertEqual(p2['analyses']['s2']['abilities'][0]['teacherText'], '教師修正後的敘述')
         self.assertEqual(p2['students'][1]['abilitySummary'], '教師撰寫摘要')
 
+class T2bAutogen(Base):
+    def test_autogen_full_pipeline(self):
+        c = self.client(); did = self.new_plan(c)
+        for k, fn in (('s1', '虛構學生甲_觀察紀錄.txt'), ('s2', '虛構學生乙_評量紀錄.txt'), ('s3', '虛構學生丙_IEP摘要.txt')):
+            self.upload(c, did, k, fn)
+        r = c.post(f'/api/drafts/{did}/autogen', headers=H); self.assertEqual(r.status_code, 200)
+        p = r.json['plan']
+        # 先備能力直接採用上傳資料原句
+        for s in p['students']:
+            self.assertTrue(s['abilityConfirmed']); self.assertTrue(s['abilitySummary'])
+            quotes = [a['quote'] for a in p['analyses'][s['key']]['abilities']]
+            self.assertTrue(all(q.rstrip('。；') in s['abilitySummary'] for q in quotes))
+        # 每位學生都有組別
+        assigned = [k for g in p['groups'] for k in g['studentKeys']]
+        self.assertEqual(sorted(assigned), ['s1', 's2', 's3'])
+        # 課綱自動選取：皆為官方原文且可追溯
+        cur = p['curriculum']
+        self.assertTrue(cur['core'] and cur['performance'] and cur['content'])
+        v = c.post('/api/curriculum/validate', json=dict(context=dict(dept='sh', grade='', domain='sn:社會技巧'), selection=cur['core'] + cur['performance'] + cur['content']), headers=H).json
+        self.assertFalse([x for x in v['results'] if x['level'] == 'error'])
+        # 目標三面向、活動時間合計
+        for lst in p['goals'].values(): self.assertEqual({x['domain'] for x in lst}, {'認知', '情意', '技能'})
+        self.assertEqual(sum(a['minutes'] for a in p['activities']), 50)
+        self.assertEqual(c.get(f'/api/drafts/{did}/check').json['issues'], [])
+
+    def test_autogen_pending_curriculum_no_fake_codes(self):
+        c = self.client(); did = self.new_plan(c, dept='elem', grade='', shDept='', domain='gen:數學', subjectLabel='數學', unit='認識數字')
+        self.upload(c, did, 's1', '虛構學生甲_觀察紀錄.txt')
+        p = c.post(f'/api/drafts/{did}/autogen', headers=H).json['plan']
+        self.assertEqual(p['curriculum']['performance'], []); self.assertEqual(p['curriculum']['content'], [])
+        for lst in p['goals'].values():
+            for x in lst: self.assertEqual(x['contentCodes'], []); self.assertEqual(x['performanceCodes'], [])
+
 class T3Curriculum(Base):
     def test_separate_fields_and_traceable(self):
         c = self.client()

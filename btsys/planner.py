@@ -53,11 +53,12 @@ def _support_for(group_students, analyses, rank):
 def _clean(t):
     return re.sub(r'[。．]$', '', t.strip())
 
-def suggest_goals(ctx, groups, analyses, perf_sel, content_sel):
-    if not perf_sel or not content_sel:
+def suggest_goals(ctx, groups, analyses, perf_sel, content_sel, curriculum_pending=False):
+    if not curriculum_pending and (not perf_sel or not content_sel):
         return dict(error='請先在「確認課綱」步驟勾選至少一項學習表現與一項學習內容，系統才會依所選項目產生目標。')
     unit = ctx.get('unit') or '本單元'
-    contents = [(_clean(c.get('teacherText') or c['officialText']), c['code']) for c in content_sel][:2]
+    # 課綱未載入（待確認）時，以單元名稱產生目標，課綱代碼留空，不自行拼湊代碼
+    contents = [(_clean(c.get('teacherText') or c['officialText']), c['code']) for c in content_sel][:2] or [(unit, '')]
     pcodes = [p['code'] for p in perf_sel][:3]
     out = {}
     for rank, g in enumerate([g for g in groups if g['studentKeys']]):
@@ -71,13 +72,13 @@ def suggest_goals(ctx, groups, analyses, perf_sel, content_sel):
         goals = [
             dict(domain='認知', situation=f'在教師以圖片、實物或情境提問呈現「{unit}」相關內容時',
                  behavior=f'能以{modes_t}{verb}「{c_text}」的正確做法或內容', support=sup,
-                 assessment='口頭評量' if modes == ['口語'] else '指認／配對評量', contentCodes=[c_code]),
+                 assessment='口頭評量' if modes == ['口語'] else '指認／配對評量', contentCodes=[x for x in [c_code] if x]),
             dict(domain='情意', situation=f'在「{unit}」的小組活動中',
                  behavior='能參與活動並' + ('以口語表達自己的感受或想法，且能等待輪流、接受同學提醒' if modes == ['口語'] else f'以{modes_t}表達喜歡或不喜歡，並能在活動中等待輪流'),
-                 support=sup, assessment='觀察評量', contentCodes=[c2_code]),
+                 support=sup, assessment='觀察評量', contentCodes=[x for x in [c2_code] if x]),
             dict(domain='技能', situation=f'在實際操作或模擬「{unit}」的情境中',
                  behavior=f'能表現出符合「{c2_text}」的實際行為或操作', support=sup,
-                 assessment='實作評量' + ('（協助下）' if rank >= 2 else ''), contentCodes=[c2_code]),
+                 assessment='實作評量' + ('（協助下）' if rank >= 2 else ''), contentCodes=[x for x in [c2_code] if x]),
         ]
         for go in goals:
             go.update(id=uuid.uuid4().hex[:8], responseModes=modes, criterion=crit, criterionSuggested=True,
