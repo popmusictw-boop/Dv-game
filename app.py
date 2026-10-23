@@ -429,7 +429,7 @@ def create_app(test_config=None):
         _, plan = load_draft(did)
         r = planner.suggest_activities(ctx_of(plan), plan.get('groups', []), plan.get('goals', {}), plan.get('curriculum', {}).get('content', []))
         b = plan.get('basic', {})
-        r['structure'] = planner.course_structure(b, options.find_domain(b.get('dept'), b.get('domain')), r['activities'], (plan.get('autogen') or {}).get('focusSubject'))
+        r['structure'] = plan.get('courseStructure') or planner.tree_to_text(planner.course_tree(b, options.find_domain(b.get('dept'), b.get('domain')), plan.get('curriculum', {}).get('content', []), store.context_items(ctx_of(plan)).get('items', [])))
         return jsonify(r)
 
     # ---------- 一鍵自動生成：先備能力（以上傳資料為準）→ 分組 → 課綱（依教案內容自動抓取）→ 目標 → 教學活動 ----------
@@ -544,10 +544,26 @@ def create_app(test_config=None):
         gl = planner.suggest_goals(ctx, groups, analyses, cur['performance'], cur['content'], curriculum_pending=not (cur['performance'] and cur['content']))
         plan['goals'] = gl.get('goals', {}); plan['goalNote'] = gl.get('note', '')
         plan['activities'] = planner.suggest_activities(ctx, groups, plan['goals'], cur['content'])['activities']
-        plan['courseStructure'] = planner.course_structure(b, options.find_domain(b.get('dept'), b.get('domain')), plan['activities'], focus)
+        sitems = store.context_items(ctx).get('items', [])
+        if focus: sitems = [x for x in sitems if x.get('subject') == focus] or store.context_items(dict(ctx, domain=next((d['key'] for d in options.domains_for('sh', None, b.get('shDept')) if d.get('framework') == 'school-practice'), ctx.get('domain')))).get('items', [])
+        if focus: sitems = [x for x in sitems if x.get('subject') == focus]
+        plan['courseStructure'] = planner.tree_to_text(planner.course_tree(b, options.find_domain(b.get('dept'), b.get('domain')), cur['content'], sitems))
         plan['autogen'] = dict(at=time.time(), notes=notes, focusSubject=focus)
         save_plan(did, plan); dbm.audit(g.user['id'], 'autogen', did)
         return jsonify(plan=plan, notes=notes)
+
+    @app.post('/api/drafts/<int:did>/structure/suggest')
+    @login_required
+    def structure_suggest(did):
+        _, plan = load_draft(did)
+        b = plan.get('basic', {}); ctx = ctx_of(plan)
+        focus = (plan.get('autogen') or {}).get('focusSubject')
+        items = store.context_items(ctx).get('items', [])
+        if focus:
+            sch = next((d['key'] for d in options.domains_for('sh', None, b.get('shDept')) if d.get('framework') == 'school-practice'), None)
+            items = [x for x in items if x.get('subject') == focus] or [x for x in store.context_items(dict(ctx, domain=sch)).get('items', []) if x.get('subject') == focus]
+        tree = planner.course_tree(b, options.find_domain(b.get('dept'), b.get('domain')), plan.get('curriculum', {}).get('content', []), items)
+        return jsonify(structure=planner.tree_to_text(tree), source=tree.get('source'))
 
     # ---------- 匯出 ----------
     def _check_ready(plan):

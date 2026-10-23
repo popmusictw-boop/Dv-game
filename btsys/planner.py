@@ -174,3 +174,71 @@ def course_structure(basic, domain, activities, focus_subject=None):
         subs = [x.strip() for x in subs if x.strip()][:4]
         lines.append(('　　└ ' if i == len(phases) - 1 else '　　├ ') + f'{ph}（{mins}分）' + (('：' + '、'.join(subs)) if subs else ''))
     return '\n'.join(lines)
+
+
+# ---------- 課程架構圖（樹狀：主題 → 單元 → 活動重點） ----------
+def _short(t, n=12):
+    t = re.sub(r'[（(][^）)]*[）)]', '', (t or '')).strip().rstrip('。；')
+    if len(t) > n and '、' in t: t = t.split('、')[0]
+    return t[:n]
+
+def course_tree(basic, domain, cur_sel, subject_items, activities=None):
+    """推估本單元在課程中的完整架構（系統推估，可修改）：
+    - 有本校教學大綱者：主題＝科目，單元取大綱中本單元與前後單元，子項為大綱細項。
+    - 否則：主題＝所選學習內容的「向度」（如「門市清潔作業」），同向度／同科目其他向度推估為相鄰單元，子項取學習內容條目。"""
+    unit = basic.get('unit') or '本單元'
+    course = (basic.get('customDomain') if (domain or {}).get('key') == 'custom' else (domain or {}).get('label')) or '本課程'
+    ol = (domain or {}).get('outline') or {}
+    units = ol.get('units') or []
+    idx = next((i for i, u in enumerate(units) if u.get('title') and (u['title'] in unit or unit in u['title'])), None)
+    if idx is not None:
+        pick = sorted({max(0, min(len(units) - 3, idx - 1)) + k for k in range(min(3, len(units)))})
+        nodes = [dict(title=_short(units[i]['title'], 12), current=(i == idx), children=[_short(x) for x in units[i].get('items', [])[:2]]) for i in pick]
+        return dict(root=_short(course, 14), nodes=nodes, estimated=False, source='本校教學大綱')
+    content = [x for x in cur_sel or []]
+    by_code = {it['code']: it for it in subject_items or []}
+    main = next((by_code.get(x['code']) for x in content if by_code.get(x['code'])), None)
+    dim = (main or {}).get('dimension') or ''
+    root = _short(dim or course, 14)
+    sel_codes = {x['code'] for x in content}
+    # 本單元子項：已選學習內容中與單元不同字的條目；不足時以教學流程推估
+    kids = [_short(x.get('teacherText') or x['officialText']) for x in content if _short(x.get('teacherText') or x['officialText']) != _short(unit)][:2]
+    if len(kids) < 2:
+        kids = (kids + [f'認識{_short(unit, 8)}步驟', f'{_short(unit, 8)}實作練習'])[:2]
+    nodes = [dict(title=_short(unit, 12), current=True, children=kids)]
+    pool = [it for it in subject_items or [] if it.get('type') == '學習內容' and it['code'] not in sel_codes and it.get('defaultStage', True)]
+    same = [it for it in pool if dim and it.get('dimension') == dim]
+    for it in same[:2]:
+        nodes.append(dict(title=_short(it['text'], 12), current=False, children=[]))
+    if len(nodes) < 3:
+        seen = {dim}
+        for it in pool:
+            d = it.get('dimension') or ''
+            if d and d not in seen:
+                seen.add(d)
+                nodes.append(dict(title=_short(d, 12), current=False, children=[_short(x['text']) for x in pool if x.get('dimension') == d][:2]))
+            if len(nodes) >= 3: break
+    # 本單元置中
+    if len(nodes) == 3: nodes = [nodes[1], nodes[0], nodes[2]]
+    return dict(root=root, nodes=nodes, estimated=True, source='依所選課綱向度推估')
+
+def tree_to_text(tree):
+    if not tree: return ''
+    out = [tree.get('root', '')]
+    for n in tree.get('nodes', []):
+        out.append('  ' + ('*' if n.get('current') else '') + n['title'])
+        out += ['    ' + c for c in n.get('children', [])]
+    return '\n'.join(out)
+
+def text_to_tree(text):
+    lines = [l.rstrip() for l in (text or '').split('\n') if l.strip()]
+    if not lines: return None
+    tree = dict(root=lines[0].strip(), nodes=[], estimated=False)
+    for l in lines[1:]:
+        ind = len(l) - len(l.lstrip(' 　'))
+        t = l.strip()
+        if ind <= 2 or not tree['nodes']:
+            tree['nodes'].append(dict(title=t.lstrip('*＊'), current=t.startswith(('*', '＊')), children=[]))
+        else:
+            tree['nodes'][-1]['children'].append(t)
+    return tree

@@ -695,8 +695,7 @@ function stepGenerate() {
     const r = await api('POST', `/api/drafts/${S.draftId}/activities/suggest`); p.activities = r.activities; p.courseStructure = r.structure; markDirty(); render();
   };
   const tb = h('span', { class: 'timebar ' + (timeTotal() === Number(p.basic.minutes) ? 'ok' : 'bad') }, `時間合計 ${timeTotal()}／${p.basic.minutes} 分`);
-  const cs = bind(p, 'courseStructure', h('textarea', { value: p.courseStructure || '', rows: 6 })); cs.style.whiteSpace = 'pre-wrap';
-  wrap.append(h('label', {}, '課程架構（自動產生，可修改）', cs));
+  wrap.append(treeEditor(p));
   wrap.append(h('div', { class: 'row space' }, h('button', { class: 'btn primary', onclick: gen }, p.activities.length ? '重新產生教學活動（會覆蓋）' : '產生教學活動'), tb));
   const groups = p.groups.filter(g => g.studentKeys.length);
   const updTime = () => { tb.textContent = `時間合計 ${timeTotal()}／${p.basic.minutes} 分`; tb.className = 'timebar ' + (timeTotal() === Number(p.basic.minutes) ? 'ok' : 'bad'); };
@@ -713,6 +712,38 @@ function stepGenerate() {
   }
   if (p.activities.length) wrap.append(h('button', { class: 'btn small', onclick: () => { p.activities.push({ id: uid(), phase: '', content: '', resources: '', minutes: 0, groupSupport: {}, assessment: {} }); markDirty(); render(); } }, '＋ 新增活動段落'));
   return wrap;
+}
+
+// ---------- 課程架構圖 ----------
+function parseTree(text) {
+  const lines = (text || '').split('\n').filter(l => l.trim());
+  if (!lines.length) return null;
+  const t = { root: lines[0].trim(), nodes: [] };
+  for (const l of lines.slice(1)) {
+    const ind = l.length - l.replace(/^[ 　]+/, '').length, v = l.trim();
+    if (ind <= 2 || !t.nodes.length) t.nodes.push({ title: v.replace(/^[*＊]/, ''), current: /^[*＊]/.test(v), children: [] });
+    else t.nodes[t.nodes.length - 1].children.push(v);
+  }
+  return t;
+}
+function treeView(text) {
+  const t = parseTree(text);
+  if (!t || !t.nodes.length) return h('div', { class: 'muted' }, text || '（尚未產生）');
+  const el = h('div', { class: 'otree' }, h('div', { class: 'ot-inner' }, h('div', { class: 'ot-root' }, h('span', { class: 'ot-box b' }, t.root)),
+    h('div', { class: 'ot-level' }, ...t.nodes.map(n => h('div', { class: 'ot-node' + (n.current ? ' cur' : '') },
+      h('span', { class: 'ot-box' + (n.current ? ' b' : '') }, n.title),
+      n.children.length ? h('div', { class: 'ot-level kids' }, ...n.children.map(c => h('div', { class: 'ot-node' }, h('span', { class: 'ot-box sm' }, c)))) : null)))));
+  // 手機寬度不足時可左右捲動，預設捲到本單元
+  requestAnimationFrame(() => { const c = el.querySelector('.ot-node.cur'); if (c && el.scrollWidth > el.clientWidth) el.scrollLeft = c.offsetLeft + c.offsetWidth / 2 - el.clientWidth / 2; });
+  return el;
+}
+function treeEditor(p) {
+  const view = h('div', {}, treeView(p.courseStructure));
+  const ta = h('textarea', { value: p.courseStructure || '', rows: 8 }); ta.style.whiteSpace = 'pre'; ta.style.fontFamily = 'monospace';
+  ta.addEventListener('input', () => { p.courseStructure = ta.value; markDirty(); view.replaceChildren(treeView(ta.value)); });
+  const re = async () => { await saveNow(); try { const r = await api('POST', `/api/drafts/${S.draftId}/structure/suggest`); p.courseStructure = r.structure; markDirty(); ta.value = r.structure; view.replaceChildren(treeView(r.structure)); toast('已重新推估課程架構'); } catch (e) { toast(e.message); } };
+  return h('div', {}, h('div', { class: 'row space' }, h('strong', {}, '課程架構圖（系統推估，可修改）'), h('button', { class: 'btn small', onclick: re }, '重新推估')), view,
+    h('details', {}, h('summary', { class: 'hint' }, '修改架構（第一行為主題；空兩格為單元，* 標示本單元；空四格為重點）'), ta));
 }
 
 // ---------- 7. 預覽 ----------
@@ -755,7 +786,7 @@ function stepPreview() {
   t2.append(tr(lbl('學\n生\n先備能力\n分\n析', { rowspan: studs.length + 1 }), lbl('組別', { colspan: 2 }), lbl('姓名'), lbl('性別'), lbl('障礙\n類別'), lbl('與本單元教學相關之能力', { colspan: 3 })));
   for (const s of studs) t2.append(tr(h('td', { class: 'c', colspan: 2 }, gname(s.key)), ed(s, 'name', 'c'), ed(s, 'gender', 'c'), ed(s, 'disability', 'c'), span(ed(s, 'abilitySummary'), 3)));
   const ro = (t) => h('td', { colspan: 7, title: '請至「確認課綱」或「分組與目標」步驟修改，以維持官方原文追溯' }, t);
-  t2.append(tr(lbl('課程\n架構', { colspan: 2 }), span(ed(p, 'courseStructure'), 7)), tr(lbl('核心\n素養', { colspan: 2 }), ro(f.core)), tr(lbl('學習\n重點', { colspan: 2 }), ro(f.focus)),
+  t2.append(tr(lbl('課程\n架構', { colspan: 2 }), h('td', { colspan: 7, title: '請至「教學活動」步驟修改課程架構' }, treeView(p.courseStructure))), tr(lbl('核心\n素養', { colspan: 2 }), ro(f.core)), tr(lbl('學習\n重點', { colspan: 2 }), ro(f.focus)),
     tr(lbl('議題\n融入', { colspan: 2 }), span(ed(p, 'issuesText'), 7)), tr(lbl('學習\n目標', { colspan: 2 }), ro(f.goals)));
   const t3 = h('table', { class: 'pv' }, h('colgroup', {}, ...[383.65, 48.7, 50.5, 62.9].map(w => h('col', { style: `width:${w / 545.75 * 100}%` }))),
     tr(h('th', {}, '教學活動'), h('th', {}, '教學\n資源'), h('th', {}, '教學\n時間'), h('th', { style: 'font-size:.75rem' }, '評量\n方式\n(需列出A、B、C組評量方式)')));

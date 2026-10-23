@@ -78,6 +78,90 @@ def _page_number_footer(section):
         else:
             it = OxmlElement('w:instrText'); it.set(qn('xml:space'), 'preserve'); it.text = txt; run._r.append(it)
 
+def _borders(cell, color='000000', sz=8, sides=('top', 'left', 'bottom', 'right')):
+    tcPr = cell._tc.get_or_add_tcPr()
+    b = tcPr.find(qn('w:tcBorders'))
+    if b is None:
+        b = OxmlElement('w:tcBorders')
+        # 依 OOXML 結構順序放在 tcW／gridSpan／vMerge 之後、shd／vAlign 之前
+        after = [e for e in tcPr if e.tag in (qn('w:tcW'), qn('w:gridSpan'), qn('w:vMerge'), qn('w:hMerge'))]
+        if after: after[-1].addnext(b)
+        else: tcPr.insert(0, b)
+    for side in ('top', 'left', 'bottom', 'right'):
+        e = b.find(qn('w:' + side))
+        if e is None: e = OxmlElement('w:' + side); b.append(e)
+        on = side in sides
+        e.set(qn('w:val'), 'single' if on else 'nil')
+        if on: e.set(qn('w:sz'), str(sz)); e.set(qn('w:color'), color)
+
+def _tree_table(cell, text):
+    """課程架構圖：以內嵌表格繪製三層架構（主題 → 單元 → 重點），並以線段連接；本單元以紅框標示。"""
+    from .planner import text_to_tree
+    tree = text_to_tree(text)
+    if not tree or not tree['nodes']: return False
+    nodes = tree['nodes']
+    has_kids = any(n['children'] for n in nodes)
+    GAP_S, GAP_L, TOTAL = 6.0, 14.0, 478.0
+    # 欄位：每個框拆成左右兩半（便於在框中央畫連線），框與框之間為間隔欄
+    cols, node_spans, kid_spans = [], [], []
+    nbox = sum(max(1, len(n['children'])) for n in nodes)
+    ngs = sum(max(0, len(n['children']) - 1) for n in nodes); ngl = len(nodes) - 1
+    bw = (TOTAL - ngs * GAP_S - ngl * GAP_L) / nbox
+    for ni, n in enumerate(nodes):
+        if ni: cols += [GAP_L / 2, GAP_L / 2]
+        ks = []
+        for j in range(max(1, len(n['children']))):
+            if j: cols += [GAP_S / 2, GAP_S / 2]
+            ks.append((len(cols), len(cols) + 1)); cols += [bw / 2, bw / 2]
+        kid_spans.append(ks); node_spans.append((ks[0][0], ks[-1][1]))
+    edges = [0.0]
+    for w in cols: edges.append(edges[-1] + w)
+    def center_col(a, b):  # 跨 a..b 欄之中心最近的欄界（以該欄左框線表示）
+        x = (edges[a] + edges[b + 1]) / 2
+        return min(range(a, b + 1), key=lambda j: abs(edges[j] - x)) if b > a else a
+    R_ROOT, R_T1, R_BAR1, R_UNIT, R_T2, R_BAR2, R_KID = range(7)
+    rows = 7 if has_kids else 4
+    cell.text = ''
+    t = cell.add_table(rows=rows, cols=len(cols))
+    t.alignment = WD_TABLE_ALIGNMENT.CENTER
+    tblPr = t._tbl.tblPr
+    lay = OxmlElement('w:tblLayout'); lay.set(qn('w:type'), 'fixed'); tblPr.append(lay)
+    tb = OxmlElement('w:tblBorders')
+    for side in ('top', 'left', 'bottom', 'right', 'insideH', 'insideV'):
+        e = OxmlElement('w:' + side); e.set(qn('w:val'), 'nil'); tb.append(e)
+    tblPr.append(tb)
+    for i, gc in enumerate(t._tbl.tblGrid.findall(qn('w:gridCol'))): gc.set(qn('w:w'), str(int(cols[i] * 20)))
+    for row in t.rows:
+        for i, cc in enumerate(row.cells): cc.width = Pt(cols[i]); _set_cell(cc, '', 3)
+    def h(ri, pt):
+        trPr = t.rows[ri]._tr.get_or_add_trPr(); e = OxmlElement('w:trHeight')
+        e.set(qn('w:val'), str(int(pt * 20))); e.set(qn('w:hRule'), 'exact'); trPr.append(e)
+    def box(ri, c0, c1, txt, color='000000', sz=10, bold=False):
+        cc = t.cell(ri, c0).merge(t.cell(ri, c1)) if c1 > c0 else t.cell(ri, c0)
+        _set_cell(cc, txt, sz, bold, 'center'); _borders(cc, color, 16 if color != '000000' else 8)
+    def line(ri, col, sides, color='000000'):
+        _borders(t.cell(ri, col), color, 8, sides)
+    def connect(r_tick, r_bar, parent_span, child_spans, color='000000'):
+        pc = center_col(*parent_span)
+        if r_tick is not None: h(r_tick, 6); line(r_tick, pc, ('left',), color)
+        h(r_bar, 7)
+        cs = [center_col(*sp) for sp in child_spans]
+        lo, hi = min(cs + [pc]), max(cs + [pc])
+        for j in range(lo, hi): line(r_bar, j, ('top',) + (('left',) if j in cs else ()), color)
+        for j in cs:
+            if j == hi: line(r_bar, j, ('left',), color)
+    mid = node_spans[len(nodes) // 2]
+    box(R_ROOT, mid[0], mid[1], tree['root'], sz=11, bold=True)
+    connect(R_T1, R_BAR1, mid, node_spans)
+    for n, sp, ks in zip(nodes, node_spans, kid_spans):
+        red = 'C00000' if n.get('current') else '000000'
+        box(R_UNIT, sp[0], sp[1], n['title'], red, 10, bool(n.get('current')))
+        if has_kids and n['children']:
+            connect(None, R_BAR2, sp, ks[:len(n['children'])], red)
+            for j, ch in enumerate(n['children']): box(R_KID, ks[j][0], ks[j][1], ch, red, 9)
+    if has_kids: h(R_T2, 1)
+    return True
+
 def goals_text(groups, goals):
     """學習目標依本校教案寫法：1.認知／2.情意／3.技能，各組以 1-A、1-B 分列；各組相同者合併為一句。"""
     act = [g for g in groups if g.get('studentKeys') or goals.get(g['key'])]
@@ -174,7 +258,9 @@ def build_docx(plan):
                                    ('議題\n融入', f['issues'] or '無'), ('學習\n目標', f['goals']))):
         row = t2.rows[r + k]; _row_height(row, 52.5)
         if k == 0: _no_split(row)
-        lab(c(r + k, 0, 1), lbl); val(c(r + k, 2, 8), v, 'left', 'top')
+        lab(c(r + k, 0, 1), lbl)
+        if k == 0 and _tree_table(c(r + k, 2, 8), v): continue
+        val(c(r + k, 2, 8), v, 'left', 'top')
 
     doc.add_paragraph()
     # 表3：教學流程（單一內容列，各欄以階段序號對齊）

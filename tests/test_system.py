@@ -118,7 +118,7 @@ class T2bAutogen(Base):
         # 目標三面向、活動時間合計
         for lst in p['goals'].values(): self.assertEqual({x['domain'] for x in lst}, {'認知', '情意', '技能'})
         self.assertEqual(sum(a['minutes'] for a in p['activities']), 50)
-        self.assertIn('上課好好坐', p['courseStructure']); self.assertIn('發展活動', p['courseStructure'])
+        self.assertIn('*上課好好坐', p['courseStructure'])
         self.assertEqual(c.get(f'/api/drafts/{did}/check').json['issues'], [])
 
     def test_autogen_pending_curriculum_no_fake_codes(self):
