@@ -430,6 +430,7 @@ def create_app(test_config=None):
         return jsonify(planner.suggest_activities(ctx_of(plan), plan.get('groups', []), plan.get('goals', {}), plan.get('curriculum', {}).get('content', [])))
 
     # ---------- 一鍵自動生成：先備能力（以上傳資料為準）→ 分組 → 課綱（依教案內容自動抓取）→ 目標 → 教學活動 ----------
+    DISABILITY_TYPES = ['多重障礙', '情緒行為障礙', '智能障礙', '視覺障礙', '聽覺障礙', '語言障礙', '肢體障礙', '腦性麻痺', '身體病弱', '學習障礙', '自閉症', '發展遲緩', '其他障礙']
     AUTO_PICK = {'核心素養': ('core', 2), '學習表現': ('performance', 3), '學習內容': ('content', 3)}
 
     def _summary_from(a):
@@ -461,8 +462,13 @@ def create_app(test_config=None):
             a.update(rejected=[], generatedAt=time.time(), autoAccepted=True)
             for x in a['abilities']: x['confirmed'] = True
             plan.setdefault('analyses', {})[st['key']] = a
-            if a['basic']['gender']['status'] == '原文事實' and not st.get('gender'): st['gender'] = a['basic']['gender']['value']
-            if a['basic']['disability']['status'] == '原文事實' and not st.get('disability'): st['disability'] = a['basic']['disability']['value']
+            # 性別與障礙類別以教師選單為準；未選時才依資料原文帶入（須對應選單項目）
+            gv = a['basic']['gender']['value'] if a['basic']['gender']['status'] == '原文事實' else ''
+            if not st.get('gender') and gv[:1] in ('男', '女'): st['gender'] = gv[:1]
+            dv = a['basic']['disability']['value'] if a['basic']['disability']['status'] == '原文事實' else ''
+            if not st.get('disability'):
+                hit = next((x for x in DISABILITY_TYPES if x in dv or (x == '自閉症' and '自閉' in dv)), '')
+                if hit: st['disability'] = hit
             st.update(abilitySummary=_summary_from(a), abilityConfirmed=True, summaryEdited=False)
         analyses = plan.get('analyses', {})
         # 2. 分組（依佐證中的支持需求；佐證不足者併入 A 組並提示）

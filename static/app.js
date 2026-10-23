@@ -332,6 +332,9 @@ function privacyNotice() {
       h('li', {}, '系統紀錄只記錄操作類型與編號，不記錄學生姓名或內容。建議以代號取代學生全名。')),
     h('div', { class: 'hint' }, '支援格式：' + [...new Set(Object.values(p.supported))].join('、') + `；單檔上限 ${p.maxUploadMb} MB。不支援：.doc、HEIC 等（會提示轉檔方式）。`)));
 }
+const GENDERS = ['男', '女'];
+// 特殊教育法第3條身心障礙類別
+const DISABILITIES = ['智能障礙', '視覺障礙', '聽覺障礙', '語言障礙', '肢體障礙', '腦性麻痺', '身體病弱', '情緒行為障礙', '學習障礙', '多重障礙', '自閉症', '發展遲緩', '其他障礙'];
 function stepUpload() {
   const p = S.plan; const wrap = h('div', { class: 'card' }, h('h1', {}, '2. 上傳學生資料'), privacyNotice());
   const nameIn = h('input', { placeholder: '學生姓名或代號（建議代號，如：A1、甲）' });
@@ -382,6 +385,10 @@ function studentUploadCard(s) {
     S.files.push(r.file); render();
   };
   const nameIn = bind(s, 'name', h('input', { value: s.name || '' }));
+  const pick = (key, label, opts) => {
+    const list = s[key] && !opts.includes(s[key]) ? [...opts, s[key]] : opts;
+    return h('label', {}, label, bind(s, key, h('select', { 'aria-label': label }, h('option', { value: '' }, '請選擇'), ...list.map(o => h('option', { value: o, selected: s[key] === o }, o)))));
+  };
   return h('div', { class: 'student' },
     h('div', { class: 'row space' }, h('h2', {}, s.code || s.name),
       h('div', { class: 'row' },
@@ -394,7 +401,8 @@ function studentUploadCard(s) {
           delete S.plan.analyses[s.key]; for (const g of S.plan.groups) g.studentKeys = g.studentKeys.filter(k => k !== s.key);
           markDirty(); render();
         } }, '移除學生'))),
-    h('div', { class: 'grid' }, h('label', {}, '教案顯示姓名', nameIn), h('label', {}, '上傳檔案（可多選、可拍照）', fileIn)),
+    h('div', { class: 'grid' }, h('label', {}, '教案顯示姓名', nameIn), pick('gender', '性別', GENDERS), pick('disability', '障礙類別', DISABILITIES)),
+    h('label', {}, '上傳檔案（可多選、可拍照）', fileIn),
     status,
     h('details', {}, h('summary', { class: 'hint' }, '或貼上文字'), paste, h('button', { class: 'btn small', onclick: doPaste }, '加入')),
     files.length ? h('div', {}, ...files.map(f => h('div', { class: 'file-item' },
