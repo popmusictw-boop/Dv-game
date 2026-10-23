@@ -183,7 +183,7 @@ async function openDraft(id) {
 function stepDone(i) {
   const p = S.plan, b = p.basic;
   switch (i) {
-    case 0: return !!(b.dept && b.grade && b.domain && b.unit && b.minutes);
+    case 0: return !!(b.dept && b.stageText && b.domain && b.unit && b.minutes);
     case 1: return p.students.length > 0 && p.students.every(s => s.excludeFromPlan || S.files.some(f => f.studentKey === s.key && f.segments > 0));
     case 2: return p.students.length > 0 && p.students.every(s => s.excludeFromPlan || s.abilityConfirmed);
     case 3: return p.curriculum.performance.length > 0 && p.curriculum.content.length > 0 && !S.validation.some(v => v.level !== 'ok');
@@ -226,14 +226,13 @@ function domainsFor() {
 }
 function autoSubjectLabel() {
   const b = S.plan.basic; const dom = domainsFor().find(x => x.key === b.domain);
-  if (!dom || b.subjectLabelEdited) return;
+  if (!dom) return;
   const base = dom.key === 'custom' ? (b.customDomain || '') : (dom.framework === 'special-needs' ? dom.label : dom.label);
   b.subjectLabel = base + (b.courseName ? '/' + b.courseName : '');
 }
 function stepBasic() {
   const b = S.plan.basic; const wrap = h('div', { class: 'card' }, h('h1', {}, '1. 基本資料'));
   const dSel = h('select', { 'aria-label': '部別' }, h('option', { value: '' }, '請選擇部別'), ...S.options.departments.map(d => h('option', { value: d.key, selected: b.dept === d.key }, d.label)));
-  const gSel = h('select', { 'aria-label': '年級' });
   const cSel = h('select', { 'aria-label': '科別' });
   const domSel = h('select', { 'aria-label': '領域／科目' });
   const domNote = h('div', { class: 'hint' });
@@ -242,7 +241,7 @@ function stepBasic() {
   const subj = h('input', { value: b.subjectLabel || '' });
   subj.addEventListener('input', () => { b.subjectLabel = subj.value; b.subjectLabelEdited = true; markDirty(); });
   const fillGrades = () => {
-    const d = deptObj(); gSel.replaceChildren(h('option', { value: '' }, '請選擇年級'), ...(d ? d.grades.map(g => h('option', { value: g.key, selected: b.grade === g.key }, g.label)) : []));
+    const d = deptObj();
     shBox.hidden = !(d && d.key === 'sh');
     if (d && d.key === 'sh') {
       b.cluster ||= '服務群';
@@ -253,7 +252,7 @@ function stepBasic() {
     const list = domainsFor(); const groups = {};
     for (const x of list) (groups[x.group] ||= []).push(x);
     domSel.replaceChildren(h('option', { value: '' }, '請選擇領域／科目'), ...Object.entries(groups).map(([g, xs]) => h('optgroup', { label: g }, ...xs.map(x => h('option', { value: x.key, selected: b.domain === x.key }, x.label + (x.dataStatus === 'loaded' ? '' : '（課綱待確認）'))))));
-    if (b.domain && !list.some(x => x.key === b.domain)) { domNote.textContent = '原選的領域／科目不適用目前部別／年級／科別，請重新選擇。'; b.domain = ''; }
+    if (b.domain && !list.some(x => x.key === b.domain)) { domNote.textContent = '原選的領域／科目不適用目前部別／科別，請重新選擇。'; b.domain = ''; }
     const cur = list.find(x => x.key === b.domain);
     if (deptObj()?.key === 'sh' && !b.shDept) domNote.textContent = '請先選擇科別，系統依本校課程計畫列出該科科目。';
     else domNote.textContent = cur ? (cur.framework === 'school-practice' ? '本校校訂實習科目：課綱推薦將自服務群科課綱對應（系統推估）。' : cur.dataStatus === 'loaded' ? '此科目已載入官方課綱（逐字擷取）。' : '此領域尚未載入可信課綱資料：課綱欄位將標示「待確認」，可匯入官方資料。') : domNote.textContent;
@@ -262,7 +261,6 @@ function stepBasic() {
   };
   const ctxChanged = async () => { S.rec = null; S.ctxItems = null; autoSubjectLabel(); subj.value = b.subjectLabel || ''; markDirty(); await revalidate(true); };
   dSel.onchange = () => { b.dept = dSel.value; b.grade = ''; if (b.dept !== 'sh') { b.shDept = ''; } fillGrades(); fillDomains(); ctxChanged(); };
-  gSel.onchange = () => { b.grade = gSel.value; const g = deptObj()?.grades.find(x => x.key === b.grade); if (g && !b.stageEdited) b.stageText = g.label + (b.className ? ' ' + b.className : ''); stage.value = b.stageText || ''; fillDomains(); ctxChanged(); };
   cSel.onchange = () => { b.shDept = cSel.value; fillDomains(); ctxChanged(); };
   domSel.onchange = () => { b.domain = domSel.value; b.subjectLabelEdited = false; fillDomains(); ctxChanged(); };
   const unitBox = h('div', { class: 'notice', hidden: true });
@@ -281,15 +279,14 @@ function stepBasic() {
   fillGrades(); fillDomains();
   shBox.append(h('label', {}, '群別', h('select', { disabled: true }, h('option', {}, '服務群'))), h('label', {}, '科別', cSel));
   const unitIn = bind(b, 'unit', h('input', { value: b.unit || '', placeholder: '例：上課好好坐' }), () => { S.rec = null; });
-  const stage = h('input', { value: b.stageText || '' }); stage.addEventListener('input', () => { b.stageText = stage.value; b.stageEdited = true; markDirty(); });
+  const stage = h('input', { value: b.stageText || '', 'aria-label': '班級', placeholder: '請自行填寫，例：小1、國八甲、高二餐飲A組' }); stage.addEventListener('input', () => { b.stageText = stage.value; b.stageEdited = true; markDirty(); });
   const dateIn = h('input', { type: 'date', value: b.date || '' }); dateIn.onchange = () => { b.date = dateIn.value; b.dateText = rocDate(b.date); markDirty(); };
   if (b.date && !b.dateText) b.dateText = rocDate(b.date);
   wrap.append(
-    h('div', { class: 'grid' }, h('label', {}, '部別', dSel), h('label', {}, '年級', gSel)), shBox,
+    h('div', { class: 'grid' }, h('label', {}, '部別', dSel), h('label', {}, '班級', stage)), shBox,
     h('div', { class: 'grid' }, h('label', {}, '領域／科目', domSel, domNote), custom,
       h('label', {}, '課程名稱（選填，例：餐飲服務禮儀實作）', bind(b, 'courseName', h('input', { value: b.courseName || '' }), () => { autoSubjectLabel(); subj.value = b.subjectLabel || ''; }))),
     unitBox,
-    h('label', {}, '教案「領域/科目名稱」欄顯示文字（可修改）', subj),
     h('div', { class: 'grid' },
       h('label', {}, '單元名稱', unitIn),
       h('label', {}, '教學日期', dateIn),
@@ -298,8 +295,7 @@ function stepBasic() {
       h('label', {}, '教學總節數', bind(b, 'totalPeriods', h('input', { type: 'number', min: 1, value: b.totalPeriods || 1 }))),
       h('label', {}, '本節為第＿節', bind(b, 'periodNo', h('input', { type: 'number', min: 1, value: b.periodNo || 1 }))),
       h('label', {}, '每節分鐘數', bind(b, 'minutes', h('input', { type: 'number', min: 10, max: 180, value: b.minutes || 45 })))),
-    h('label', {}, '教學階段（年級／班級／組別）', stage),
-    h('p', { class: 'hint' }, '切換部別、年級、科別或領域後，系統會重新檢核已勾選的課綱項目，提示不適用者。'));
+    h('p', { class: 'hint' }, '切換部別、科別或領域後，系統會重新檢核已勾選的課綱項目，提示不適用者。'));
   return wrap;
 }
 
@@ -311,7 +307,7 @@ async function revalidate(announce) {
   const bad = r.results.filter(x => x.level !== 'ok');
   if (announce && bad.length) {
     const box = h('div', {}, h('h2', {}, '已選課綱項目需要重新檢核'),
-      h('p', {}, '部別／年級／領域變更後，下列項目不適用或需確認：'),
+      h('p', {}, '部別／科別／領域變更後，下列項目不適用或需確認：'),
       ...bad.map(x => h('div', { class: 'sel-item ' + (x.level === 'error' ? 'err' : 'warn') }, h('strong', {}, x.code + ' '), x.messages.join('；'))),
       h('div', { class: 'row' },
         h('button', { class: 'btn primary', onclick: () => { removeInvalid(bad.filter(x => x.level === 'error')); closeModal(); } }, '移除不適用項目（警告項目保留待確認）'),

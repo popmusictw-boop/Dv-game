@@ -51,10 +51,9 @@ class T1Options(Base):
         c1 = [x['subject'] for x in options.domains_for('elem', 'e-c1')]
         self.assertIn('生活課程', c1); self.assertIn('社會', c1); self.assertIn('生活管理', c1)
         self.assertEqual(c1, [x['subject'] for x in options.domains_for('elem', 'e-c2')])
-        j7 = [x['subject'] for x in options.domains_for('jh', 'j7')]
-        j8 = [x['subject'] for x in options.domains_for('jh', 'j8')]
-        j9 = [x['subject'] for x in options.domains_for('jh', 'j9')]
-        self.assertIn('科技', j7); self.assertIn('溝通訓練', j7); self.assertNotIn('溝通訓練', j8); self.assertIn('職業教育', j9)
+        jh = [x['subject'] for x in options.domains_for('jh', '')]
+        self.assertIn('科技', jh); self.assertIn('溝通訓練', jh); self.assertIn('職業教育', jh)
+        self.assertEqual(options.grade_info('jh', '')['stage'], 'Ⅳ'); self.assertTrue(options.grade_info('elem', '')['mixed'])
         food = [x['label'] for x in options.domains_for('sh', 's10', '餐飲服務科')]
         for n in ('食材處理實作', '家事處理實作', '餐飲服務禮儀實作', '服務導論', '社會技巧'):
             self.assertIn(n, food)

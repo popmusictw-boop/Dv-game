@@ -60,7 +60,7 @@ SCHOOL_SOURCES = [dict(SCHOOL_SH['source'], scope='技高部科別與科目'), d
 def _ej_domains(level, prefix):
     data = SCHOOL_EJ[level]
     # 國小部混齡：所有領域兩班皆可選（不依年級篩選）；國中部依年級篩選
-    gk = (lambda gs: None) if level == 'elem' else (lambda gs: [f'{prefix}{g}' for g in gs])
+    gk = lambda gs: None  # 不再依年級篩選（教學者自填班級）
     out = [_d('gen:' + x['name'], x['name'] + (f'（{x["note"]}）' if x.get('note') and x['name'] == '語文' else ''), '部定課程－領域學習', 'general', x['name'], grades=gk(x['grades'])) for x in data['domains']]
     offered = {x['name'] for x in data['specialNeeds']}
     out += [_d('sn:' + x['name'], x['name'], '校訂課程－特殊需求領域（本校課程架構）', 'special-needs', x['name'], 'loaded', grades=gk(x['grades'])) for x in data['specialNeeds']]
@@ -128,6 +128,10 @@ def find_domain(dept_key, domain_key):
     d = find_dept(dept_key)
     return next((x for x in (d or {}).get('domains', []) if x['key'] == domain_key), None)
 
+# 介面已改為由教學者自填「班級」，不再選年級；課綱學習階段依部別預設（國小部混齡依能力選用）
+DEPT_STAGE = {'kg': {}, 'elem': dict(stage=None, level='E', mixed=True), 'jh': dict(stage='Ⅳ', level='J'), 'sh': dict(stage='Ⅴ', level='U')}
+
 def grade_info(dept_key, grade_key):
     d = find_dept(dept_key)
-    return next((x for x in (d or {}).get('grades', []) if x['key'] == grade_key), None)
+    g = next((x for x in (d or {}).get('grades', []) if x['key'] == grade_key), None)
+    return g or (DEPT_STAGE.get(dept_key) if d else None)

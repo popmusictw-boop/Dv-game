@@ -28,7 +28,7 @@ with sync_playwright() as p:
     page.wait_for_selector('#stepBody select')
     # 1 基本資料
     page.select_option('select[aria-label=部別]', 'sh')
-    page.select_option('select[aria-label=年級]', 's12')
+    page.fill('input[aria-label=班級]', '高三餐飲A組')
     page.select_option('select[aria-label=科別]', '餐飲服務科')
     opts = page.eval_on_selector_all('select[aria-label="領域／科目"] option', 'os => os.map(o => o.textContent)')
     assert '食材處理實作' in opts and '車輛外部清理實作' not in opts, '技高部科別篩選技能領域失敗'
@@ -49,7 +49,7 @@ with sync_playwright() as p:
         page.wait_for_selector(f'.student h2:text-is("{code}")')
         card = page.locator('.student', has=page.locator(f'h2:text-is("{code}")'))
         card.locator('input[type=file]').set_input_files(os.path.join(FIX, fn))
-        page.wait_for_selector(f'text={fn}')
+        page.wait_for_selector(f'text={fn}'); page.wait_for_timeout(1000)  # 等上傳後畫面更新完成
     shot(page, '2_upload')
     page.click('#btnNext')
     # 3 先備能力
@@ -100,10 +100,10 @@ with sync_playwright() as p:
     page.wait_for_selector('table.pv'); shot(page, '7_preview')
     page.click('#btnNext')
     # 8 匯出
-    page.wait_for_selector('text=下載 Word')
-    with page.expect_download() as d: page.click('text=下載 Word（可編輯）')
+    page.wait_for_selector('button:has-text("下載 Word")')
+    with page.expect_download() as d: page.click('button:has-text("下載 Word（可編輯）")')
     d.value.save_as(os.path.join(OUT, f'{MODE}_export.docx'))
-    with page.expect_download(timeout=120000) as d: page.click('text=下載 PDF')
+    with page.expect_download(timeout=120000) as d: page.click('button:has-text("下載 PDF")')
     d.value.save_as(os.path.join(OUT, f'{MODE}_export.pdf'))
     shot(page, '8_export')
     b.close()
