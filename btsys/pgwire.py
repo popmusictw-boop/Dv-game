@@ -48,6 +48,17 @@ class Connection:
             if 'sslverify=0' in (u.query or ''):
                 ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE
             raw = ctx.wrap_socket(raw, server_hostname=u.hostname)
+            if os.environ.get('BT_TLS_DIAG') and not getattr(Connection, '_diag', False):
+                Connection._diag = True
+                try:
+                    from cryptography import x509
+                    c = x509.load_der_x509_certificate(raw.getpeercert(True))
+                    try: aki = c.extensions.get_extension_for_class(x509.AuthorityKeyIdentifier).value.key_identifier.hex()
+                    except Exception: aki = '-'
+                    print('TLSDIAG subject=', c.subject.rfc4514_string(), '| issuer=', c.issuer.rfc4514_string(), '| aki=', aki,
+                          '| issuer_der=', c.issuer.public_bytes().hex(), flush=True)
+                except Exception as e:
+                    print('TLSDIAG error', e, flush=True)
         self.sock = raw; self.buf = b''
         self._startup()
 
