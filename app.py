@@ -494,7 +494,7 @@ def create_app(test_config=None):
         d = request.get_json(force=True)
         if len(d.get('password', '')) < 10: return jsonify(error='密碼至少 10 碼'), 400
         try:
-            dbm.get_db().execute('INSERT INTO users(username,display_name,password_hash,is_admin,must_change,created_at) VALUES(?,?,?,?,1,?)',
+            dbm.get_db().execute('INSERT INTO users(username,display_name,password_hash,is_admin,must_change,created_at) VALUES(?,?,?,?,0,?)',
                                  (d['username'].strip().lower(), d.get('name') or d['username'], generate_password_hash(d['password']), int(bool(d.get('admin'))), time.time()))
             dbm.get_db().commit()
         except Exception:
@@ -510,7 +510,7 @@ def create_app(test_config=None):
         if 'active' in d: db.execute('UPDATE users SET active=? WHERE id=?', (int(bool(d['active'])), uid_))
         if d.get('password'):
             if len(d['password']) < 10: return jsonify(error='密碼至少 10 碼'), 400
-            db.execute('UPDATE users SET password_hash=?, must_change=1 WHERE id=?', (generate_password_hash(d['password']), uid_))
+            db.execute('UPDATE users SET password_hash=?, must_change=0 WHERE id=?', (generate_password_hash(d['password']), uid_))
         db.commit(); dbm.audit(g.user['id'], 'user_edit', uid_)
         return jsonify(ok=True)
 
