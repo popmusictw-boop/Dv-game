@@ -161,7 +161,7 @@ def build_docx(plan):
         val(c(r, 6, 8), s.get('abilitySummary', '') or '待確認', 'left', 'top')
     lab(t2.cell(3, 0).merge(t2.cell(3 + len(students), 0)), '學\n生\n先備能力\n分\n析')
     r = 4 + len(students)
-    for k, (lbl, v) in enumerate((('課程\n架構', ''), ('核心\n素養', f['core']), ('學習\n重點', f['focus']),
+    for k, (lbl, v) in enumerate((('課程\n架構', plan.get('courseStructure', '')), ('核心\n素養', f['core']), ('學習\n重點', f['focus']),
                                    ('議題\n融入', f['issues'] or '無'), ('學習\n目標', f['goals']))):
         row = t2.rows[r + k]; _row_height(row, 52.5)
         if k == 0: _no_split(row)

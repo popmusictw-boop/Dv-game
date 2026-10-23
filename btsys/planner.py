@@ -123,3 +123,28 @@ def suggest_activities(ctx, groups, goals, content_sel):
 def check_time(activities, minutes):
     total = sum(int(a.get('minutes') or 0) for a in activities)
     return dict(ok=(total == int(minutes or 0)), total=total, minutes=int(minutes or 0))
+
+def course_structure(basic, domain, activities, focus_subject=None):
+    """自動產生「課程架構」：課程 → 本單元 → 本節教學活動；有本校教學大綱者列出單元位置。皆可由教師修改。"""
+    course = basic.get('subjectLabel') or (domain or {}).get('label') or '本課程'
+    group = re.split(r'[（(]', (domain or {}).get('group') or '')[0].strip()
+    unit = basic.get('unit') or '本單元'
+    lines = [course + (f'（{group}）' if group and group != '其他' else '')]
+    ol = (domain or {}).get('outline') or {}
+    units = ol.get('units') or []
+    idx = next((i for i, u in enumerate(units) if u.get('title') and (u['title'] in unit or unit in u['title'])), None)
+    if units:
+        pos = f'第{units[idx]["no"]}單元／共{len(units)}單元' if idx is not None else f'本校教學大綱共{len(units)}單元'
+        lines.append(f'├ 本校教學大綱：{pos}')
+    if focus_subject and focus_subject != course:
+        lines.append(f'├ 對應課綱科目：{focus_subject}')
+    tp, pn = basic.get('totalPeriods'), basic.get('periodNo')
+    lines.append(f'└ 單元：{unit}' + (f'（共{tp}節，本節第{pn}節）' if tp and pn else ''))
+    if idx is not None and units[idx].get('items'):
+        lines.append('　　├ 單元內容：' + '、'.join(units[idx]['items'])[:60])
+    acts = [a for a in activities if a.get('phase')]
+    for i, a in enumerate(acts):
+        first = re.sub(r'^（[一二三四五六七八九十]+）', '', (a.get('content') or '').split('\n')[0]).strip()
+        first = re.split(r'[，。；：]', first)[0][:24]
+        lines.append(('　　└ ' if i == len(acts) - 1 else '　　├ ') + f'{a["phase"]}（{a.get("minutes", "")}分）' + (f'：{first}' if first else ''))
+    return '\n'.join(lines)

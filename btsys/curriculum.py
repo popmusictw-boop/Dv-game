@@ -141,15 +141,19 @@ class Store:
             sc, terms = self.score(it['text'] + ' ' + (it.get('dimension') or ''), qw)
             match = round(sc, 2)
             unit_match = round(self.score(it['text'] + ' ' + (it.get('dimension') or ''), qu)[0], 2)
-            if domain.get('framework') == 'school-practice' and it['type'] != '核心素養' and (not it.get('skillDomain') or it['skillDomain'] in own):
+            # 校訂實習科目：本科適用技能領域（或群共同專業／實習科目）加分，其他科別技能領域略降
+            foreign = bool(domain.get('framework') == 'school-practice' and own and it['type'] != '核心素養'
+                           and it.get('skillDomain') and it['skillDomain'] not in own)
+            if domain.get('framework') == 'school-practice' and it['type'] != '核心素養' and not foreign:
                 sc += 3.0
+            if foreign: sc -= 3.0
             if it['defaultStage']: sc += 8.0
             elif it['type'] == '核心素養': sc -= 50.0
             reason = []
             if terms: reason.append('與課程／單元名稱共同詞：' + '、'.join(_merge_terms(terms)[:5]))
             if it['defaultStage'] and it['type'] != '核心素養': reason.append('符合本年級學習階段')
             if it.get('stageNote'): reason.append(it['stageNote'])
-            res[it['type']].append(dict(it, score=round(sc, 2), match=match, unitMatch=unit_match, reason='；'.join(reason) or '同科目項目（系統推估相關性低）'))
+            res[it['type']].append(dict(it, score=round(sc, 2), match=match, unitMatch=unit_match, foreignDomain=foreign, reason='；'.join(reason) or '同科目項目（系統推估相關性低）'))
         for k in res:
             res[k].sort(key=lambda x: (-x['score'], x['code']))
         # 核心素養只推薦本教育階段（其餘仍可在「展開全部」中選用）

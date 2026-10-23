@@ -427,7 +427,10 @@ def create_app(test_config=None):
     @login_required
     def acts_suggest(did):
         _, plan = load_draft(did)
-        return jsonify(planner.suggest_activities(ctx_of(plan), plan.get('groups', []), plan.get('goals', {}), plan.get('curriculum', {}).get('content', [])))
+        r = planner.suggest_activities(ctx_of(plan), plan.get('groups', []), plan.get('goals', {}), plan.get('curriculum', {}).get('content', []))
+        b = plan.get('basic', {})
+        r['structure'] = planner.course_structure(b, options.find_domain(b.get('dept'), b.get('domain')), r['activities'], (plan.get('autogen') or {}).get('focusSubject'))
+        return jsonify(r)
 
     # ---------- 一鍵自動生成：先備能力（以上傳資料為準）→ 分組 → 課綱（依教案內容自動抓取）→ 目標 → 教學活動 ----------
     DISABILITY_TYPES = ['多重障礙', '情緒行為障礙', '智能障礙', '視覺障礙', '聽覺障礙', '語言障礙', '肢體障礙', '腦性麻痺', '身體病弱', '學習障礙', '自閉症', '發展遲緩', '其他障礙']
@@ -440,6 +443,24 @@ def create_app(test_config=None):
     def opt_domain_label(b):
         dom = options.find_domain(b.get('dept'), b.get('domain')) or {}
         return b.get('customDomain') if dom.get('key') == 'custom' else dom.get('label', '')
+
+    def _focus_subject(rec):
+        """校訂實習等跨科目推薦時，選出與課程／單元名稱最相符的單一科目（課程領域），學習表現與學習內容皆取自該科目，避免混雜。"""
+        subj = {it.get('subject') for k in ('performance', 'content') for it in rec.get(k, [])}
+        if len(subj) <= 1: return None
+        score = {}
+        for k in ('performance', 'content'):
+            for it in rec.get(k, []):
+                if not it.get('defaultStage'): continue
+                w = it.get('unitMatch', 0) * 2 + it.get('match', 0)
+                if not it.get('foreignDomain'): w *= 1.3
+                score.setdefault(it['subject'], []).append(w)
+        best = {sj: sum(sorted(v, reverse=True)[:4]) for sj, v in score.items()}
+        if not best or max(best.values()) <= 0: return None
+        top = max(best, key=best.get)
+        perf_ok = any(x.get('subject') == top for x in rec.get('performance', []))
+        cont_ok = any(x.get('subject') == top for x in rec.get('content', []))
+        return top if perf_ok and cont_ok else None
 
     @app.post('/api/drafts/<int:did>/autogen')
     @login_required
@@ -482,11 +503,13 @@ def create_app(test_config=None):
         plan['groups'] = groups; plan['groupRationale'] = gr
         # 3. 依課程（領域／科目）與單元名稱自動抓取課綱；教學流程中的通用句型不納入計分，避免干擾
         course = b.get('subjectLabel') or (opt_domain_label(b))
-        rec = store.recommend(ctx, b.get('unit', ''), [], 30, course=course)  # 依課程與單元名稱抓取；學生資料不納入計分以免偏題
-        cur = dict(core=[], performance=[], content=[])
+        rec = store.recommend(ctx, b.get('unit', ''), [], 400, course=course)  # 依課程與單元名稱抓取；學生資料不納入計分以免偏題
+        cur = dict(core=[], performance=[], content=[]); focus = None
         if rec.get('status') != '待確認':
+            focus = _focus_subject(rec)
             for label, (k, n) in AUTO_PICK.items():
                 pool = rec.get(k, [])
+                if focus and k != 'core': pool = [x for x in pool if x.get('subject') == focus]
                 # 符合學習階段者優先；其中先取與單元名稱相關者，再取與課程名稱相關者
                 ranked = sorted(pool, key=lambda x: (not x.get('defaultStage'), not x.get('unitMatch', 0) > 0, not x.get('match', 0) > 0, -x['score']))
                 if k == 'core': ranked = [x for x in ranked if x.get('defaultStage')]
@@ -502,7 +525,8 @@ def create_app(test_config=None):
         gl = planner.suggest_goals(ctx, groups, analyses, cur['performance'], cur['content'], curriculum_pending=not (cur['performance'] and cur['content']))
         plan['goals'] = gl.get('goals', {}); plan['goalNote'] = gl.get('note', '')
         plan['activities'] = planner.suggest_activities(ctx, groups, plan['goals'], cur['content'])['activities']
-        plan['autogen'] = dict(at=time.time(), notes=notes)
+        plan['courseStructure'] = planner.course_structure(b, options.find_domain(b.get('dept'), b.get('domain')), plan['activities'], focus)
+        plan['autogen'] = dict(at=time.time(), notes=notes, focusSubject=focus)
         save_plan(did, plan); dbm.audit(g.user['id'], 'autogen', did)
         return jsonify(plan=plan, notes=notes)
 

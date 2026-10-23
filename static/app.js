@@ -524,12 +524,12 @@ async function stepCurriculum() {
     try {
       const g = await api('POST', `/api/drafts/${S.draftId}/goals/suggest`); p.goals = g.goals; p.goalNote = g.note;
       markDirty(); await saveNow();
-      const a = await api('POST', `/api/drafts/${S.draftId}/activities/suggest`); p.activities = a.activities; markDirty();
+      const a = await api('POST', `/api/drafts/${S.draftId}/activities/suggest`); p.activities = a.activities; p.courseStructure = a.structure; markDirty();
       toast('已重新產生學習目標與教學活動');
     } catch (e) { toast(e.message); }
   };
   wrap.append(h('div', { class: 'row space' },
-    h('span', { class: 'hint' }, rec.status === '待確認' ? '此科目尚無官方課綱資料，教案將顯示「待確認」' : '已依課程與單元名稱自動選取（官方原文），可移除或加入'),
+    h('span', { class: 'hint' }, rec.status === '待確認' ? '此科目尚無官方課綱資料，教案將顯示「待確認」' : '已依課程與單元名稱自動選取（官方原文），可移除或加入' + (p.autogen?.focusSubject ? `；課程領域：${p.autogen.focusSubject}` : '')),
     p.autogen ? h('button', { class: 'btn small', onclick: regen }, '依課綱重新產生目標與活動') : null));
   for (const [k, label] of TYPES) {
     wrap.append(h('h2', {}, `${label}（${p.curriculum[k].length}）`));
@@ -691,9 +691,11 @@ function stepGenerate() {
   const p = S.plan; const wrap = h('div', { class: 'card' }, h('h1', {}, '5. 教學活動（教學流程）'));
   const gen = async () => {
     await saveNow();
-    const r = await api('POST', `/api/drafts/${S.draftId}/activities/suggest`); p.activities = r.activities; markDirty(); render();
+    const r = await api('POST', `/api/drafts/${S.draftId}/activities/suggest`); p.activities = r.activities; p.courseStructure = r.structure; markDirty(); render();
   };
   const tb = h('span', { class: 'timebar ' + (timeTotal() === Number(p.basic.minutes) ? 'ok' : 'bad') }, `時間合計 ${timeTotal()}／${p.basic.minutes} 分`);
+  const cs = bind(p, 'courseStructure', h('textarea', { value: p.courseStructure || '', rows: 6 })); cs.style.whiteSpace = 'pre-wrap';
+  wrap.append(h('label', {}, '課程架構（自動產生，可修改）', cs));
   wrap.append(h('div', { class: 'row space' }, h('button', { class: 'btn primary', onclick: gen }, p.activities.length ? '重新產生教學活動（會覆蓋）' : '產生教學活動'), tb));
   const groups = p.groups.filter(g => g.studentKeys.length);
   const updTime = () => { tb.textContent = `時間合計 ${timeTotal()}／${p.basic.minutes} 分`; tb.className = 'timebar ' + (timeTotal() === Number(p.basic.minutes) ? 'ok' : 'bad'); };
@@ -746,7 +748,7 @@ function stepPreview() {
   t2.append(tr(lbl('學\n生\n先備能力\n分\n析', { rowspan: studs.length + 1 }), lbl('組別', { colspan: 2 }), lbl('姓名'), lbl('性別'), lbl('障礙\n類別'), lbl('與本單元教學相關之能力', { colspan: 3 })));
   for (const s of studs) t2.append(tr(h('td', { class: 'c', colspan: 2 }, gname(s.key)), ed(s, 'name', 'c'), ed(s, 'gender', 'c'), ed(s, 'disability', 'c'), span(ed(s, 'abilitySummary'), 3)));
   const ro = (t) => h('td', { colspan: 7, title: '請至「確認課綱」或「分組與目標」步驟修改，以維持官方原文追溯' }, t);
-  t2.append(tr(lbl('課程\n架構', { colspan: 2 }), ro('')), tr(lbl('核心\n素養', { colspan: 2 }), ro(f.core)), tr(lbl('學習\n重點', { colspan: 2 }), ro(f.focus)),
+  t2.append(tr(lbl('課程\n架構', { colspan: 2 }), span(ed(p, 'courseStructure'), 7)), tr(lbl('核心\n素養', { colspan: 2 }), ro(f.core)), tr(lbl('學習\n重點', { colspan: 2 }), ro(f.focus)),
     tr(lbl('議題\n融入', { colspan: 2 }), span(ed(p, 'issuesText'), 7)), tr(lbl('學習\n目標', { colspan: 2 }), ro(f.goals)));
   const t3 = h('table', { class: 'pv' }, h('colgroup', {}, ...[383.65, 48.7, 50.5, 62.9].map(w => h('col', { style: `width:${w / 545.75 * 100}%` }))),
     tr(h('th', {}, '教學活動'), h('th', {}, '教學\n資源'), h('th', {}, '教學\n時間'), h('th', { style: 'font-size:.75rem' }, '評量\n方式\n(需列出A、B、C組評量方式)')));
